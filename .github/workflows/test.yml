@@ -8,7 +8,7 @@ jobs:
       matrix:
         # At the time of writing macos-latest is mac 10; we need 11 to build a universal binary.
         os: [ubuntu-latest, macos-11, windows-latest]
-        node: [10, 12, 14]
+        node: [12, 14, 16]
         arch: [x86, x64]
         exclude:
           - { os: ubuntu-latest, arch: x86 }
