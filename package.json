@@ -1,7 +1,7 @@
 {
-  "name": "leveldown",
-  "version": "6.1.0",
-  "description": "A low-level Node.js LevelDB binding",
+  "name": "classic-level",
+  "version": "0.0.0",
+  "description": "An abstract-level database backed by LevelDB",
   "license": "MIT",
   "main": "leveldown.js",
   "scripts": {
@@ -55,9 +55,9 @@
   "gypfile": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/Level/leveldown.git"
+    "url": "https://github.com/Level/classic-level.git"
   },
-  "homepage": "https://github.com/Level/leveldown",
+  "homepage": "https://github.com/Level/classic-level",
   "keywords": [
     "leveldb",
     "level"

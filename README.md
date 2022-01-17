@@ -1,13 +1,17 @@
-# leveldown
+# classic-level
+
+**An [`abstract-level`](https://github.com/Level/abstract-level) database backed by [LevelDB](https://github.com/google/leveldb).** The successor to `leveldown`.
+
+> :pushpin: Which module should I use? What is `abstract-level`? Head over to the [FAQ](https://github.com/Level/community#faq).
 
 [![level badge][level-badge]](https://github.com/Level/awesome)
-[![npm](https://img.shields.io/npm/v/leveldown.svg)](https://www.npmjs.com/package/leveldown)
-[![Node version](https://img.shields.io/node/v/leveldown.svg)](https://www.npmjs.com/package/leveldown)
-[![Test](https://img.shields.io/github/workflow/status/Level/leveldown/Test?label=test)](https://github.com/Level/leveldown/actions/workflows/test.yml)
-[![Coverage](https://img.shields.io/codecov/c/github/Level/leveldown?label=&logo=codecov&logoColor=fff)](https://codecov.io/gh/Level/leveldown)
-[![Standard](https://img.shields.io/badge/standard-informational?logo=javascript&logoColor=fff)](https://standardjs.com)
+[![npm](https://img.shields.io/npm/v/classic-level.svg)](https://www.npmjs.com/package/classic-level)
+[![Node version](https://img.shields.io/node/v/classic-level.svg)](https://www.npmjs.com/package/classic-level)
+[![Test](https://img.shields.io/github/workflow/status/Level/classic-level/Test?label=test)](https://github.com/Level/classic-level/actions/workflows/test.yml)
+[![Coverage](https://img.shields.io/codecov/c/github/Level/classic-level?label=\&logo=codecov\&logoColor=fff)](https://codecov.io/gh/Level/classic-level)
+[![Standard](https://img.shields.io/badge/standard-informational?logo=javascript\&logoColor=fff)](https://standardjs.com)
 [![Common Changelog](https://common-changelog.org/badge.svg)](https://common-changelog.org)
-[![Donate](https://img.shields.io/badge/donate-orange?logo=open-collective&logoColor=fff)](https://opencollective.com/level)
+[![Donate](https://img.shields.io/badge/donate-orange?logo=open-collective\&logoColor=fff)](https://opencollective.com/level)
 
 ## Table of Contents
 
@@ -87,7 +91,7 @@ If you don't want to use the prebuilt binary for the platform you are installing
 
 ```
 npm install --build-from-source
-npm install leveldown --build-from-source
+npm install classic-level --build-from-source
 ```
 
 If you are working on `leveldown` itself and want to re-compile the C++ code, run `npm run rebuild`.
@@ -437,7 +441,5 @@ Support us with a monthly donation on [Open Collective](https://opencollective.c
 ## License
 
 [MIT](LICENSE)
-
-_`leveldown` builds on the excellent work of the LevelDB and Snappy teams from Google and additional contributors. LevelDB and Snappy are both issued under the [New BSD License](http://opensource.org/licenses/BSD-3-Clause). A large portion of `leveldown` Windows support comes from the [Windows LevelDB port](http://code.google.com/r/kkowalczyk-leveldb/) (archived) by [Krzysztof Kowalczyk](http://blog.kowalczyk.info/) ([`@kjk`](https://twitter.com/kjk)). If you're using `leveldown` on Windows, you should give him your thanks!_
 
 [level-badge]: https://leveljs.org/img/badge.svg

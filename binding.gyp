@@ -1,6 +1,6 @@
 {
   "targets": [{
-    "target_name": "leveldown",
+    "target_name": "classic_level",
     "conditions": [
       ["OS == 'win'", {
         "defines": [

@@ -941,7 +941,7 @@ struct OpenWorker final : public BaseWorker {
               const uint32_t maxOpenFiles,
               const uint32_t blockRestartInterval,
               const uint32_t maxFileSize)
-    : BaseWorker(env, database, callback, "leveldown.db.open"),
+    : BaseWorker(env, database, callback, "classic_level.db.open"),
       location_(location) {
     options_.block_cache = database->blockCache_;
     options_.filter_policy = database->filterPolicy_;
@@ -1009,7 +1009,7 @@ struct CloseWorker final : public BaseWorker {
   CloseWorker (napi_env env,
                Database* database,
                napi_value callback)
-    : BaseWorker(env, database, callback, "leveldown.db.close") {}
+    : BaseWorker(env, database, callback, "classic_level.db.close") {}
 
   ~CloseWorker () {}
 
@@ -1062,7 +1062,7 @@ struct PutWorker final : public PriorityWorker {
              leveldb::Slice key,
              leveldb::Slice value,
              bool sync)
-    : PriorityWorker(env, database, callback, "leveldown.db.put"),
+    : PriorityWorker(env, database, callback, "classic_level.db.put"),
       key_(key), value_(value) {
     options_.sync = sync;
   }
@@ -1109,7 +1109,7 @@ struct GetWorker final : public PriorityWorker {
              leveldb::Slice key,
              const bool asBuffer,
              const bool fillCache)
-    : PriorityWorker(env, database, callback, "leveldown.db.get"),
+    : PriorityWorker(env, database, callback, "classic_level.db.get"),
       key_(key),
       asBuffer_(asBuffer) {
     options_.fill_cache = fillCache;
@@ -1167,7 +1167,7 @@ struct GetManyWorker final : public PriorityWorker {
                  napi_value callback,
                  const bool valueAsBuffer,
                  const bool fillCache)
-    : PriorityWorker(env, database, callback, "leveldown.get.many"),
+    : PriorityWorker(env, database, callback, "classic_level.get.many"),
       keys_(keys), valueAsBuffer_(valueAsBuffer) {
       options_.fill_cache = fillCache;
       options_.snapshot = database->NewSnapshot();
@@ -1258,7 +1258,7 @@ struct DelWorker final : public PriorityWorker {
              napi_value callback,
              leveldb::Slice key,
              bool sync)
-    : PriorityWorker(env, database, callback, "leveldown.db.del"),
+    : PriorityWorker(env, database, callback, "classic_level.db.del"),
       key_(key) {
     options_.sync = sync;
   }
@@ -1305,7 +1305,7 @@ struct ClearWorker final : public PriorityWorker {
                std::string* lte,
                std::string* gt,
                std::string* gte)
-    : PriorityWorker(env, database, callback, "leveldown.db.clear") {
+    : PriorityWorker(env, database, callback, "classic_level.db.clear") {
     iterator_ = new BaseIterator(database, reverse, lt, lte, gt, gte, limit, false);
     writeOptions_ = new leveldb::WriteOptions();
     writeOptions_->sync = false;
@@ -1385,7 +1385,7 @@ struct ApproximateSizeWorker final : public PriorityWorker {
                          napi_value callback,
                          leveldb::Slice start,
                          leveldb::Slice end)
-    : PriorityWorker(env, database, callback, "leveldown.db.approximate_size"),
+    : PriorityWorker(env, database, callback, "classic_level.db.approximate_size"),
       start_(start), end_(end) {}
 
   ~ApproximateSizeWorker () {
@@ -1439,7 +1439,7 @@ struct CompactRangeWorker final : public PriorityWorker {
                       napi_value callback,
                       leveldb::Slice start,
                       leveldb::Slice end)
-    : PriorityWorker(env, database, callback, "leveldown.db.compact_range"),
+    : PriorityWorker(env, database, callback, "classic_level.db.compact_range"),
       start_(start), end_(end) {}
 
   ~CompactRangeWorker () {
@@ -1500,7 +1500,7 @@ struct DestroyWorker final : public BaseWorker {
   DestroyWorker (napi_env env,
                  const std::string& location,
                  napi_value callback)
-    : BaseWorker(env, NULL, callback, "leveldown.destroy_db"),
+    : BaseWorker(env, NULL, callback, "classic_level.destroy_db"),
       location_(location) {}
 
   ~DestroyWorker () {}
@@ -1536,7 +1536,7 @@ struct RepairWorker final : public BaseWorker {
   RepairWorker (napi_env env,
                 const std::string& location,
                 napi_value callback)
-    : BaseWorker(env, NULL, callback, "leveldown.repair_db"),
+    : BaseWorker(env, NULL, callback, "classic_level.repair_db"),
       location_(location) {}
 
   ~RepairWorker () {}
@@ -1640,7 +1640,7 @@ struct EndWorker final : public BaseWorker {
   EndWorker (napi_env env,
              Iterator* iterator,
              napi_value callback)
-    : BaseWorker(env, iterator->database_, callback, "leveldown.iterator.end"),
+    : BaseWorker(env, iterator->database_, callback, "classic_level.iterator.end"),
       iterator_(iterator) {}
 
   ~EndWorker () {}
@@ -1695,7 +1695,7 @@ struct NextWorker final : public BaseWorker {
               Iterator* iterator,
               napi_value callback)
     : BaseWorker(env, iterator->database_, callback,
-                 "leveldown.iterator.next"),
+                 "classic_level.iterator.next"),
       iterator_(iterator), ok_() {}
 
   ~NextWorker () {}
@@ -1791,7 +1791,7 @@ struct BatchWorker final : public PriorityWorker {
                leveldb::WriteBatch* batch,
                const bool sync,
                const bool hasData)
-    : PriorityWorker(env, database, callback, "leveldown.batch.do"),
+    : PriorityWorker(env, database, callback, "classic_level.batch.do"),
       batch_(batch), hasData_(hasData) {
     options_.sync = sync;
   }
@@ -1981,7 +1981,7 @@ struct BatchWriteWorker final : public PriorityWorker {
                     Batch* batch,
                     napi_value callback,
                     const bool sync)
-    : PriorityWorker(env, batch->database_, callback, "leveldown.batch.write"),
+    : PriorityWorker(env, batch->database_, callback, "classic_level.batch.write"),
       batch_(batch),
       sync_(sync) {
         // Prevent GC of batch object before we execute
