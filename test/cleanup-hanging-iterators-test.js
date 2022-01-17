@@ -1,3 +1,5 @@
+'use strict'
+
 const makeTest = require('./make')
 const repeats = 200
 

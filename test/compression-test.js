@@ -1,3 +1,5 @@
+'use strict'
+
 const each = require('async-each')
 const du = require('du')
 const delayed = require('delayed')

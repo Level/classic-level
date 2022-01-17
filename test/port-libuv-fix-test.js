@@ -1,3 +1,5 @@
+'use strict'
+
 const test = require('tape')
 const path = require('path')
 const fs = require('fs')

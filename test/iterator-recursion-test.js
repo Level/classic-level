@@ -1,3 +1,5 @@
+'use strict'
+
 const test = require('tape')
 const testCommon = require('./common')
 const fork = require('child_process').fork

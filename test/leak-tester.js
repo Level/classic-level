@@ -1,3 +1,5 @@
+'use strict'
+
 const BUFFERS = false
 
 const testCommon = require('./common')

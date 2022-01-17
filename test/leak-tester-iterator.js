@@ -1,3 +1,5 @@
+'use strict'
+
 const db = require('./common').factory()
 
 let count = 0

@@ -1,3 +1,5 @@
+'use strict'
+
 /**
   * This test uses infinite recursion to test iterator creation with limited
   * stack space. In order to isolate the test harness, we run in a different

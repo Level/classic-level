@@ -1,3 +1,5 @@
+'use strict'
+
 const test = require('tape')
 const tempy = require('tempy')
 const fs = require('fs')
