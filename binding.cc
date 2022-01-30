@@ -746,10 +746,20 @@ struct BaseIterator {
     //           (lte_ != NULL && target.compare(*lte_) > 0));
     // }
 
-    return ((lt_  != NULL && target.compare(*lt_) >= 0) ||
-            (lte_ != NULL && target.compare(*lte_) > 0) ||
-            (gt_  != NULL && target.compare(*gt_) <= 0) ||
-            (gte_ != NULL && target.compare(*gte_) < 0));
+    // The lte and gte options take precedence over lt and gt respectively
+    if (lte_ != NULL) {
+      if (target.compare(*lte_) > 0) return true;
+    } else if (lt_ != NULL) {
+      if (target.compare(*lt_) >= 0) return true;
+    }
+
+    if (gte_ != NULL) {
+      if (target.compare(*gte_) < 0) return true;
+    } else if (gt_ != NULL) {
+      if (target.compare(*gt_) <= 0) return true;
+    }
+
+    return false;
   }
 
   Database* database_;
