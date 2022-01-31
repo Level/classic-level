@@ -2,27 +2,23 @@
 
 const test = require('tape')
 const fs = require('fs')
-const leveldown = require('..')
+const { ClassicLevel } = require('..')
 const makeTest = require('./make')
 
-test('test argument-less repair() throws', function (t) {
-  t.throws(leveldown.repair, {
-    name: 'Error',
-    message: 'repair() requires `location` and `callback` arguments'
-  }, 'no-arg repair() throws')
-  t.end()
-})
-
-test('test callback-less, 1-arg, repair() throws', function (t) {
-  t.throws(leveldown.repair.bind(null, 'foo'), {
-    name: 'Error',
-    message: 'repair() requires `location` and `callback` arguments'
-  }, 'callback-less, 1-arg repair() throws')
+test('test repair() without location throws', function (t) {
+  t.throws(ClassicLevel.repair, {
+    name: 'TypeError',
+    message: "The first argument 'location' must be a non-empty string"
+  })
+  t.throws(() => ClassicLevel.repair(''), {
+    name: 'TypeError',
+    message: "The first argument 'location' must be a non-empty string"
+  })
   t.end()
 })
 
 test('test repair non-existent directory returns error', function (t) {
-  leveldown.repair('/1/2/3/4', function (err) {
+  ClassicLevel.repair('/1/2/3/4', function (err) {
     if (process.platform !== 'win32') {
       t.ok(/no such file or directory/i.test(err), 'error on callback')
     } else {
@@ -43,7 +39,7 @@ makeTest('test repair() compacts', function (db, t, done) {
     t.ok(files.some(function (f) { return (/\.log$/).test(f) }), 'directory contains log file(s)')
     t.notOk(files.some(function (f) { return (/\.ldb$/).test(f) }), 'directory does not contain ldb file(s)')
 
-    leveldown.repair(location, function (err) {
+    ClassicLevel.repair(location, function (err) {
       t.ifError(err, 'no error from repair()')
 
       files = fs.readdirSync(location)

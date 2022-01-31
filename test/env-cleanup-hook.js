@@ -34,7 +34,7 @@ function test (steps) {
     if (err) throw err
 
     if (nextStep() === 'create-iterator') {
-      // Create an iterator, expected to be ended by the cleanup hook.
+      // Create an iterator, expected to be closed by the cleanup hook.
       const it = db.iterator()
 
       if (nextStep() === 'nexting') {

@@ -2,85 +2,23 @@
 
 const test = require('tape')
 const testCommon = require('./common')
+const noop = () => {}
 
 let db
-
-test('setUp common for approximate size', testCommon.setUp)
 
 test('setUp db', function (t) {
   db = testCommon.factory()
   db.open(t.end.bind(t))
 })
 
-test('test argument-less approximateSize() throws', function (t) {
-  t.throws(
-    db.approximateSize.bind(db)
-    , /^Error: approximateSize\(\) requires valid `start` and `end` arguments/
-    , 'no-arg approximateSize() throws'
-  )
-  t.end()
-})
-
-test('test callback-less, 1-arg, approximateSize() throws', function (t) {
-  t.throws(
-    db.approximateSize.bind(db, 'foo')
-    , /^Error: approximateSize\(\) requires valid `start` and `end` arguments/
-    , 'callback-less, 1-arg approximateSize() throws'
-  )
-  t.end()
-})
-
-test('test callback-less, 2-arg, approximateSize() throws', function (t) {
-  t.throws(
-    db.approximateSize.bind(db, 'foo', 'bar')
-    , /^Error: approximateSize\(\) requires a callback argument/
-    , 'callback-less, 2-arg approximateSize() throws'
-  )
-  t.end()
-})
-
-test('test callback-less, 3-arg, approximateSize() throws', function (t) {
-  t.throws(
-    db.approximateSize.bind(db, function () {})
-    , /^Error: approximateSize\(\) requires valid `start` and `end` arguments/
-    , 'callback-only approximateSize() throws'
-  )
-  t.end()
-})
-
-test('test callback-only approximateSize() throws', function (t) {
-  t.throws(
-    db.approximateSize.bind(db, function () {})
-    , /^Error: approximateSize\(\) requires valid `start` and `end` arguments/
-    , 'callback-only approximateSize() throws'
-  )
-  t.end()
-})
-
-test('test 1-arg + callback approximateSize() throws', function (t) {
-  t.throws(
-    db.approximateSize.bind(db, 'foo', function () {})
-    , /^Error: approximateSize\(\) requires valid `start` and `end` arguments/
-    , '1-arg + callback approximateSize() throws'
-  )
-  t.end()
-})
-
-test('test custom _serialize*', function (t) {
-  t.plan(4)
-  const db = testCommon.factory()
-  db._serializeKey = function (data) { return data }
-  db.approximateSize = function (start, end, callback) {
-    t.deepEqual(start, { foo: 'bar' })
-    t.deepEqual(end, { beep: 'boop' })
-    process.nextTick(callback)
-  }
-  db.open(function () {
-    db.approximateSize({ foo: 'bar' }, { beep: 'boop' }, function (err) {
-      t.error(err)
-      db.close(t.error.bind(t))
+test('test approximateSize() throws if arguments are missing', function (t) {
+  for (const args of [[], ['foo'], [noop], ['foo', noop]]) {
+    t.throws(() => db.approximateSize(...args), {
+      name: 'TypeError',
+      message: "The arguments 'start' and 'end' are required"
     })
-  })
+  }
+  t.end()
 })
 
 test('test approximateSize()', function (t) {
@@ -115,5 +53,58 @@ test('test approximateSize()', function (t) {
 })
 
 test('tearDown', function (t) {
-  db.close(testCommon.tearDown.bind(null, t))
+  db.close(t.end.bind(t))
+})
+
+test('test approximateSize() yields error if db is closed', function (t) {
+  db.approximateSize('foo', 'foo', function (err) {
+    t.is(err && err.code, 'LEVEL_DATABASE_NOT_OPEN')
+    t.end()
+  })
+})
+
+test('test approximateSize() is deferred', async function (t) {
+  const opening = db.open().then(() => 'opening')
+  const deferred = db.approximateSize('a', 'b').then(() => 'deferred')
+  t.is(await Promise.race([opening, deferred]), 'opening')
+  t.same(await Promise.all([opening, deferred]), ['opening', 'deferred'])
+  return db.close()
+})
+
+// NOTE: adapted from encoding-down
+test('encodes start and end of approximateSize()', async function (t) {
+  const calls = []
+  const keyEncoding = {
+    name: 'test',
+    format: 'utf8',
+    encode (key) {
+      calls.push(key)
+      return key
+    },
+    decode: (v) => v
+  }
+  const db = testCommon.factory({ keyEncoding })
+  await db.open()
+  await db.approximateSize('a', 'b')
+  t.same(calls, ['a', 'b'])
+  return db.close()
+})
+
+// NOTE: adapted from encoding-down
+test('encodes start and end of approximateSize() with custom encoding', async function (t) {
+  const calls = []
+  const keyEncoding = {
+    name: 'test',
+    format: 'utf8',
+    encode (key) {
+      calls.push(key)
+      return key
+    },
+    decode: (v) => v
+  }
+  const db = testCommon.factory()
+  await db.open()
+  await db.approximateSize('a', 'b', { keyEncoding })
+  t.same(calls, ['a', 'b'])
+  return db.close()
 })

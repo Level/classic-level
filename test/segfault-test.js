@@ -87,20 +87,3 @@ testPending('operations', operations.length, function (db, next) {
     fn(db, next)
   }
 })
-
-// See https://github.com/Level/leveldown/issues/134
-test('iterator() does not segfault if db is not open', function (t) {
-  t.plan(2)
-
-  const db = testCommon.factory()
-
-  try {
-    db.iterator()
-  } catch (err) {
-    t.is(err.message, 'cannot call iterator() before open()')
-  }
-
-  db.close(function (err) {
-    t.ifError(err, 'no close error')
-  })
-})

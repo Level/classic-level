@@ -7,22 +7,18 @@ const path = require('path')
 const mkfiletree = require('mkfiletree')
 const readfiletree = require('readfiletree')
 const rimraf = require('rimraf')
-const leveldown = require('..')
+const { ClassicLevel } = require('..')
 const makeTest = require('./make')
 
-test('test argument-less destroy() throws', function (t) {
-  t.throws(leveldown.destroy, {
-    name: 'Error',
-    message: 'destroy() requires `location` and `callback` arguments'
-  }, 'no-arg destroy() throws')
-  t.end()
-})
-
-test('test callback-less, 1-arg, destroy() throws', function (t) {
-  t.throws(leveldown.destroy.bind(null, 'foo'), {
-    name: 'Error',
-    message: 'destroy() requires `location` and `callback` arguments'
-  }, 'callback-less, 1-arg destroy() throws')
+test('test destroy() without location throws', function (t) {
+  t.throws(ClassicLevel.destroy, {
+    name: 'TypeError',
+    message: "The first argument 'location' must be a non-empty string"
+  })
+  t.throws(() => ClassicLevel.destroy(''), {
+    name: 'TypeError',
+    message: "The first argument 'location' must be a non-empty string"
+  })
   t.end()
 })
 
@@ -39,7 +35,7 @@ test('test destroy non-existent directory', function (t) {
   rimraf(location, { glob: false }, function (err) {
     t.ifError(err, 'no error from rimraf()')
 
-    leveldown.destroy(location, function (err) {
+    ClassicLevel.destroy(location, function (err) {
       t.error(err, 'no error')
 
       // Assert that destroy() didn't inadvertently create the directory.
@@ -57,7 +53,7 @@ test('test destroy non-existent parent directory', function (t) {
 
   t.notOk(fs.existsSync(parent), 'parent does not exist before')
 
-  leveldown.destroy(location, function (err) {
+  ClassicLevel.destroy(location, function (err) {
     t.error(err, 'no error')
     t.notOk(fs.existsSync(location), 'directory does not exist after')
   })
@@ -72,7 +68,7 @@ test('test destroy non leveldb directory', function (t) {
   mkfiletree.makeTemp('destroy-test', tree, function (err, dir) {
     t.ifError(err, 'no error from makeTemp()')
 
-    leveldown.destroy(dir, function (err) {
+    ClassicLevel.destroy(dir, function (err) {
       t.ifError(err, 'no error from destroy()')
 
       readfiletree(dir, function (err, actual) {
@@ -93,7 +89,7 @@ makeTest('test destroy() cleans and removes leveldb-only dir', function (db, t, 
   db.close(function (err) {
     t.ifError(err, 'no error from close()')
 
-    leveldown.destroy(location, function (err) {
+    ClassicLevel.destroy(location, function (err) {
       t.ifError(err, 'no error from destroy()')
       t.notOk(fs.existsSync(location), 'directory completely removed')
 
@@ -109,7 +105,7 @@ makeTest('test destroy() cleans and removes only leveldb parts of a dir', functi
   db.close(function (err) {
     t.ifError(err, 'no error from close()')
 
-    leveldown.destroy(location, function (err) {
+    ClassicLevel.destroy(location, function (err) {
       t.ifError(err, 'no error from destroy()')
 
       readfiletree(location, function (err, tree) {

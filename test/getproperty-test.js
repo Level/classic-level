@@ -5,8 +5,6 @@ const testCommon = require('./common')
 
 let db
 
-test('setUp common', testCommon.setUp)
-
 test('setUp db', function (t) {
   db = testCommon.factory()
   db.open(t.end.bind(t))
@@ -14,17 +12,17 @@ test('setUp db', function (t) {
 
 test('test argument-less getProperty() throws', function (t) {
   t.throws(db.getProperty.bind(db), {
-    name: 'Error',
-    message: 'getProperty() requires a valid `property` argument'
-  }, 'no-arg getProperty() throws')
+    name: 'TypeError',
+    message: "The first argument 'property' must be a string"
+  })
   t.end()
 })
 
 test('test non-string getProperty() throws', function (t) {
   t.throws(db.getProperty.bind(db, {}), {
-    name: 'Error',
-    message: 'getProperty() requires a valid `property` argument'
-  }, 'no-arg getProperty() throws')
+    name: 'TypeError',
+    message: "The first argument 'property' must be a string"
+  })
   t.end()
 })
 
@@ -56,5 +54,12 @@ test('test invalid getProperty("leveldb.sstables")', function (t) {
 })
 
 test('tearDown', function (t) {
-  db.close(testCommon.tearDown.bind(null, t))
+  db.close(t.end.bind(t))
+})
+
+test('getProperty() throws if db is closed', function (t) {
+  t.throws(() => db.getProperty('leveldb.stats'), {
+    code: 'LEVEL_DATABASE_NOT_OPEN'
+  })
+  t.end()
 })

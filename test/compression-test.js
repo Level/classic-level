@@ -4,7 +4,7 @@ const each = require('async-each')
 const du = require('du')
 const delayed = require('delayed')
 const testCommon = require('./common')
-const leveldown = require('..')
+const { ClassicLevel } = require('..')
 const test = require('tape')
 
 const compressableData = Buffer.from(Array.apply(null, Array(1024 * 100)).map(function () {
@@ -31,8 +31,8 @@ const cycle = function (db, compression, t, callback) {
   const location = db.location
   db.close(function (err) {
     t.error(err)
-    db = leveldown(location)
-    db.open({ errorIfExists: false, compression: compression }, function () {
+    db = new ClassicLevel(location)
+    db.open({ errorIfExists: false, compression }, function () {
       t.error(err)
       db.close(function (err) {
         t.error(err)
@@ -43,8 +43,7 @@ const cycle = function (db, compression, t, callback) {
 }
 
 test('compression', function (t) {
-  t.plan(4)
-  t.test('set up', testCommon.setUp)
+  t.plan(3)
 
   t.test('test data is compressed by default (db.put())', function (t) {
     const db = testCommon.factory()

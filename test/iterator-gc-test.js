@@ -1,7 +1,6 @@
 'use strict'
 
 const test = require('tape')
-const collectEntries = require('level-concat-iterator')
 const testCommon = require('./common')
 const sourceData = []
 
@@ -12,8 +11,6 @@ for (let i = 0; i < 1e3; i++) {
     value: Math.random().toString()
   })
 }
-
-test('setUp', testCommon.setUp)
 
 // When you have a database open with an active iterator, but no references to
 // the db, V8 will GC the database and you'll get an failed assert from LevelDB.
@@ -50,7 +47,7 @@ test('db without ref does not get GCed while iterating', function (t) {
 
   function iterate (it) {
     // No reference to db here, could be GCed. It shouldn't..
-    collectEntries(it, function (err, entries) {
+    it.all(function (err, entries) {
       t.ifError(err, 'no iterator error')
       t.is(entries.length, sourceData.length, 'got data')
 
@@ -64,5 +61,3 @@ test('db without ref does not get GCed while iterating', function (t) {
     })
   }
 })
-
-test('tearDown', testCommon.tearDown)

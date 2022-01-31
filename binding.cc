@@ -140,6 +140,22 @@ static bool BooleanProperty (napi_env env, napi_value obj, const char* key,
 }
 
 /**
+ * Returns true if the options object contains an encoding option that is "buffer"
+ */
+static bool EncodingIsBuffer (napi_env env, napi_value options, const char* option) {
+  napi_value value;
+  size_t size;
+
+  if (napi_get_named_property(env, options, option, &value) == napi_ok &&
+    napi_get_value_string_utf8(env, value, NULL, 0, &size) == napi_ok) {
+    // Value is either "buffer" or "utf8" so we can tell them apart just by size
+    return size == 6;
+  }
+
+  return false;
+}
+
+/**
  * Returns a uint32 property 'key' from 'obj'.
  * Returns 'DEFAULT' if the property doesn't exist.
  */
@@ -291,37 +307,30 @@ enum Mode {
  * Helper struct for caching and converting a key-value pair to napi_values.
  */
 struct Entry {
-  Entry (const leveldb::Slice* key, const leveldb::Slice* value) {
-    key_ = key != NULL ? new std::string(key->data(), key->size()) : NULL;
-    value_ = value != NULL ? new std::string(value->data(), value->size()) : NULL;
-  }
+  Entry (const leveldb::Slice* key, const leveldb::Slice* value)
+    : key_(key->data(), key->size()),
+      value_(value->data(), value->size()) {}
 
-  ~Entry () {
-    if (key_ != NULL) delete key_;
-    if (value_ != NULL) delete value_;
-  }
-
-  // Not used yet.
-  void ConvertXX (napi_env env, Mode mode, bool keyAsBuffer, bool valueAsBuffer, napi_value* result) {
+  void ConvertByMode (napi_env env, Mode mode, const bool keyAsBuffer, const bool valueAsBuffer, napi_value* result) {
     if (mode == Mode::entries) {
       napi_create_array_with_length(env, 2, result);
 
-      napi_value valueElement;
       napi_value keyElement;
+      napi_value valueElement;
 
-      Convert(env, key_, keyAsBuffer, &keyElement);
-      Convert(env, value_, valueAsBuffer, &valueElement);
+      Convert(env, &key_, keyAsBuffer, &keyElement);
+      Convert(env, &value_, valueAsBuffer, &valueElement);
 
       napi_set_element(env, *result, 0, keyElement);
       napi_set_element(env, *result, 1, valueElement);
     } else if (mode == Mode::keys) {
-      Convert(env, key_, keyAsBuffer, result);
+      Convert(env, &key_, keyAsBuffer, result);
     } else {
-      Convert(env, value_, valueAsBuffer, result);
+      Convert(env, &value_, valueAsBuffer, result);
     }
   }
 
-  static void Convert (napi_env env, const std::string* s, bool asBuffer, napi_value* result) {
+  static void Convert (napi_env env, const std::string* s, const bool asBuffer, napi_value* result) {
     if (s == NULL) {
       napi_get_undefined(env, result);
     } else if (asBuffer) {
@@ -332,8 +341,8 @@ struct Entry {
   }
 
 private:
-  std::string* key_;
-  std::string* value_;
+  std::string key_;
+  std::string value_;
 };
 
 /**
@@ -690,6 +699,7 @@ struct BaseIterator {
     }
   }
 
+  // TODO: rename to Close()
   void End () {
     if (!hasEnded_) {
       hasEnded_ = true;
@@ -824,34 +834,36 @@ struct Iterator final : public BaseIterator {
 
   bool ReadMany (uint32_t size) {
     cache_.clear();
+    cache_.reserve(size);
     size_t bytesRead = 0;
+    leveldb::Slice empty;
 
     while (true) {
       if (landed_) Next();
       if (!Valid() || !Increment()) break;
 
-      if (keys_) {
-        leveldb::Slice slice = CurrentKey();
-        cache_.emplace_back(slice.data(), slice.size());
-        bytesRead += slice.size();
-      } else {
-        cache_.emplace_back("");
+      if (keys_ && values_) {
+        leveldb::Slice k = CurrentKey();
+        leveldb::Slice v = CurrentValue();
+        cache_.emplace_back(&k, &v);
+        bytesRead += k.size() + v.size();
+      } else if (keys_) {
+        leveldb::Slice k = CurrentKey();
+        cache_.emplace_back(&k, &empty);
+        bytesRead += k.size();
+      } else if (values_) {
+        leveldb::Slice v = CurrentValue();
+        cache_.emplace_back(&empty, &v);
+        bytesRead += v.size();
       }
 
-      if (values_) {
-        leveldb::Slice slice = CurrentValue();
-        cache_.emplace_back(slice.data(), slice.size());
-        bytesRead += slice.size();
-      } else {
-        cache_.emplace_back("");
-      }
-
+      // TODO: this logic should only apply to next(). Can it be moved to JS?
       if (!landed_) {
         landed_ = true;
         return true;
       }
 
-      if (bytesRead > highWaterMark_ || cache_.size() >= size * 2) {
+      if (bytesRead > highWaterMark_ || cache_.size() >= size) {
         return true;
       }
     }
@@ -869,7 +881,7 @@ struct Iterator final : public BaseIterator {
   bool nexting_;
   bool isEnding_;
   BaseWorker* endWorker_;
-  std::vector<std::string> cache_;
+  std::vector<Entry> cache_;
 
 private:
   napi_ref ref_;
@@ -1055,6 +1067,7 @@ NAPI_METHOD(db_close) {
   std::map<uint32_t, Iterator*>::iterator it;
 
   for (it = iterators.begin(); it != iterators.end(); ++it) {
+    // TODO: rename to iterator_close_do
     iterator_end_do(env, it->second, noop);
   }
 
@@ -1155,7 +1168,7 @@ NAPI_METHOD(db_get) {
 
   leveldb::Slice key = ToSlice(env, argv[1]);
   napi_value options = argv[2];
-  const bool asBuffer = BooleanProperty(env, options, "asBuffer", true);
+  const bool asBuffer = EncodingIsBuffer(env, options, "valueEncoding");
   const bool fillCache = BooleanProperty(env, options, "fillCache", true);
   napi_value callback = argv[3];
 
@@ -1246,7 +1259,7 @@ NAPI_METHOD(db_get_many) {
 
   const std::vector<std::string>* keys = KeyArray(env, argv[1]);
   napi_value options = argv[2];
-  const bool asBuffer = BooleanProperty(env, options, "asBuffer", true);
+  const bool asBuffer = EncodingIsBuffer(env, options, "valueEncoding");
   const bool fillCache = BooleanProperty(env, options, "fillCache", true);
   napi_value callback = argv[3];
 
@@ -1595,8 +1608,8 @@ NAPI_METHOD(iterator_init) {
   const bool keys = BooleanProperty(env, options, "keys", true);
   const bool values = BooleanProperty(env, options, "values", true);
   const bool fillCache = BooleanProperty(env, options, "fillCache", false);
-  const bool keyAsBuffer = BooleanProperty(env, options, "keyAsBuffer", true);
-  const bool valueAsBuffer = BooleanProperty(env, options, "valueAsBuffer", true);
+  const bool keyAsBuffer = EncodingIsBuffer(env, options, "keyEncoding");
+  const bool valueAsBuffer = EncodingIsBuffer(env, options, "valueEncoding");
   const int limit = Int32Property(env, options, "limit", -1);
   const uint32_t highWaterMark = Uint32Property(env, options, "highWaterMark",
                                           16 * 1024);
@@ -1644,6 +1657,7 @@ NAPI_METHOD(iterator_seek) {
 
 /**
  * Worker class for ending an iterator
+ * TODO: rename to CloseIteratorWorker
  */
 struct EndWorker final : public BaseWorker {
   EndWorker (napi_env env,
@@ -1677,6 +1691,7 @@ static void iterator_end_do (napi_env env, Iterator* iterator, napi_value cb) {
     iterator->isEnding_ = true;
 
     if (iterator->nexting_) {
+      // TODO: rename to closeWorker_
       iterator->endWorker_ = worker;
     } else {
       worker->Queue(env);
@@ -1702,10 +1717,11 @@ NAPI_METHOD(iterator_end) {
 struct NextWorker final : public BaseWorker {
   NextWorker (napi_env env,
               Iterator* iterator,
+              uint32_t size,
               napi_value callback)
     : BaseWorker(env, iterator->database_, callback,
                  "classic_level.iterator.next"),
-      iterator_(iterator), ok_() {}
+      iterator_(iterator), size_(size), ok_() {}
 
   ~NextWorker () {}
 
@@ -1714,9 +1730,7 @@ struct NextWorker final : public BaseWorker {
       iterator_->SeekToRange();
     }
 
-    // Limit the size of the cache to prevent starving the event loop
-    // in JS-land while we're recursively calling process.nextTick().
-    ok_ = iterator_->ReadMany(1000);
+    ok_ = iterator_->ReadMany(size_);
 
     if (!ok_) {
       SetStatus(iterator_->Status());
@@ -1724,23 +1738,17 @@ struct NextWorker final : public BaseWorker {
   }
 
   void HandleOKCallback (napi_env env, napi_value callback) override {
-    size_t arraySize = iterator_->cache_.size();
+    size_t size = iterator_->cache_.size();
     napi_value jsArray;
-    napi_create_array_with_length(env, arraySize, &jsArray);
+    napi_create_array_with_length(env, size, &jsArray);
 
-    for (size_t idx = 0; idx < iterator_->cache_.size(); idx += 2) {
-      std::string key = iterator_->cache_[idx];
-      std::string value = iterator_->cache_[idx + 1];
+    const bool kab = iterator_->keyAsBuffer_;
+    const bool vab = iterator_->valueAsBuffer_;
 
-      napi_value returnKey;
-      napi_value returnValue;
-
-      Entry::Convert(env, &key, iterator_->keyAsBuffer_, &returnKey);
-      Entry::Convert(env, &value, iterator_->valueAsBuffer_, &returnValue);
-
-      // put the key & value in a descending order, so that they can be .pop:ed in javascript-land
-      napi_set_element(env, jsArray, static_cast<int>(arraySize - idx - 1), returnKey);
-      napi_set_element(env, jsArray, static_cast<int>(arraySize - idx - 2), returnValue);
+    for (uint32_t idx = 0; idx < size; idx++) {
+      napi_value element;
+      iterator_->cache_[idx].ConvertByMode(env, Mode::entries, kab, vab, &element);
+      napi_set_element(env, jsArray, idx, element);
     }
 
     napi_value argv[3];
@@ -1764,6 +1772,7 @@ struct NextWorker final : public BaseWorker {
 
 private:
   Iterator* iterator_;
+  uint32_t size_;
   bool ok_;
 };
 
@@ -1771,19 +1780,23 @@ private:
  * Moves an iterator to next element.
  */
 NAPI_METHOD(iterator_next) {
-  NAPI_ARGV(2);
+  NAPI_ARGV(3);
   NAPI_ITERATOR_CONTEXT();
 
-  napi_value callback = argv[1];
+  uint32_t size;
+  NAPI_STATUS_THROWS(napi_get_value_uint32(env, argv[1], &size));
+  if (size == 0) size = 1;
 
+  napi_value callback = argv[2];
+
+  // TODO: rename to isClosing/hasClosed
   if (iterator->isEnding_ || iterator->hasEnded_) {
-    napi_value argv = CreateError(env, "iterator has ended");
-    CallFunction(env, callback, 1, &argv);
-
+    napi_value argv = CreateCodeError(env, "LEVEL_ITERATOR_NOT_OPEN", "Iterator is not open");
+    NAPI_STATUS_THROWS(CallFunction(env, callback, 1, &argv));
     NAPI_RETURN_UNDEFINED();
   }
 
-  NextWorker* worker = new NextWorker(env, iterator, callback);
+  NextWorker* worker = new NextWorker(env, iterator, size, callback);
   iterator->nexting_ = true;
   worker->Queue(env);
 

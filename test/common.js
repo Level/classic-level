@@ -2,16 +2,12 @@
 
 const test = require('tape')
 const tempy = require('tempy')
-const leveldown = require('..')
-const suite = require('abstract-leveldown/test')
+const { ClassicLevel } = require('..')
+const suite = require('abstract-level/test')
 
 module.exports = suite.common({
-  test: test,
-  factory: function () {
-    return leveldown(tempy.directory())
-  },
-
-  // Opt-in to new tests
-  clear: true,
-  getMany: true
+  test,
+  factory (options) {
+    return new ClassicLevel(tempy.directory(), options)
+  }
 })

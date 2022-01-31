@@ -1,164 +1,185 @@
 'use strict'
 
-const util = require('util')
-const AbstractLevelDOWN = require('abstract-leveldown').AbstractLevelDOWN
+// TODO: rename file
+
+const { AbstractLevel } = require('abstract-level')
+const ModuleError = require('module-error')
+const { fromCallback } = require('catering')
 const binding = require('./binding')
-const ChainedBatch = require('./chained-batch')
-const Iterator = require('./iterator')
+const { ChainedBatch } = require('./chained-batch')
+const { Iterator } = require('./iterator')
 
-function LevelDOWN (location) {
-  if (!(this instanceof LevelDOWN)) {
-    return new LevelDOWN(location)
-  }
+const kPromise = Symbol('promise')
+const kContext = Symbol('context')
+const kLocation = Symbol('location')
 
-  if (typeof location !== 'string') {
-    throw new Error('constructor requires a location string argument')
-  }
-
-  AbstractLevelDOWN.call(this, {
-    bufferKeys: true,
-    snapshots: true,
-    permanence: true,
-    seek: true,
-    clear: true,
-    getMany: true,
-    createIfMissing: true,
-    errorIfExists: true,
-    additionalMethods: {
-      approximateSize: true,
-      compactRange: true
+class ClassicLevel extends AbstractLevel {
+  constructor (location, options, _) {
+    // To help migrating to abstract-level
+    if (typeof options === 'function' || typeof _ === 'function') {
+      throw new ModuleError('The levelup-style callback argument has been removed', {
+        code: 'LEVEL_LEGACY'
+      })
     }
-  })
 
-  this.location = location
-  this.context = binding.db_init()
-}
+    if (typeof location !== 'string' || location === '') {
+      throw new TypeError("The first argument 'location' must be a non-empty string")
+    }
 
-util.inherits(LevelDOWN, AbstractLevelDOWN)
+    super({
+      encodings: {
+        buffer: true,
+        utf8: true
+      },
+      seek: true,
+      createIfMissing: true,
+      errorIfExists: true,
+      additionalMethods: {
+        approximateSize: true,
+        compactRange: true
+      }
+    }, options)
 
-LevelDOWN.prototype._open = function (options, callback) {
-  binding.db_open(this.context, this.location, options, callback)
-}
-
-LevelDOWN.prototype._close = function (callback) {
-  binding.db_close(this.context, callback)
-}
-
-LevelDOWN.prototype._serializeKey = function (key) {
-  return Buffer.isBuffer(key) ? key : String(key)
-}
-
-LevelDOWN.prototype._serializeValue = function (value) {
-  return Buffer.isBuffer(value) ? value : String(value)
-}
-
-LevelDOWN.prototype._put = function (key, value, options, callback) {
-  binding.db_put(this.context, key, value, options, callback)
-}
-
-LevelDOWN.prototype._get = function (key, options, callback) {
-  binding.db_get(this.context, key, options, callback)
-}
-
-LevelDOWN.prototype._getMany = function (keys, options, callback) {
-  binding.db_get_many(this.context, keys, options, callback)
-}
-
-LevelDOWN.prototype._del = function (key, options, callback) {
-  binding.db_del(this.context, key, options, callback)
-}
-
-LevelDOWN.prototype._clear = function (options, callback) {
-  binding.db_clear(this.context, options, callback)
-}
-
-LevelDOWN.prototype._chainedBatch = function () {
-  return new ChainedBatch(this)
-}
-
-LevelDOWN.prototype._batch = function (operations, options, callback) {
-  binding.batch_do(this.context, operations, options, callback)
-}
-
-LevelDOWN.prototype.approximateSize = function (start, end, callback) {
-  if (start == null ||
-      end == null ||
-      typeof start === 'function' ||
-      typeof end === 'function') {
-    throw new Error('approximateSize() requires valid `start` and `end` arguments')
+    this[kLocation] = location
+    this[kContext] = binding.db_init()
   }
 
-  if (typeof callback !== 'function') {
-    throw new Error('approximateSize() requires a callback argument')
+  get location () {
+    return this[kLocation]
   }
-
-  start = this._serializeKey(start)
-  end = this._serializeKey(end)
-
-  binding.db_approximate_size(this.context, start, end, callback)
 }
 
-LevelDOWN.prototype.compactRange = function (start, end, callback) {
-  if (start == null ||
-      end == null ||
-      typeof start === 'function' ||
-      typeof end === 'function') {
-    throw new Error('compactRange() requires valid `start` and `end` arguments')
-  }
+// TODO: move to class
 
-  if (typeof callback !== 'function') {
-    throw new Error('compactRange() requires a callback argument')
-  }
-
-  start = this._serializeKey(start)
-  end = this._serializeKey(end)
-
-  binding.db_compact_range(this.context, start, end, callback)
+ClassicLevel.prototype._open = function (options, callback) {
+  binding.db_open(this[kContext], this[kLocation], options, callback)
 }
 
-LevelDOWN.prototype.getProperty = function (property) {
+ClassicLevel.prototype._close = function (callback) {
+  binding.db_close(this[kContext], callback)
+}
+
+ClassicLevel.prototype._put = function (key, value, options, callback) {
+  binding.db_put(this[kContext], key, value, options, callback)
+}
+
+ClassicLevel.prototype._get = function (key, options, callback) {
+  binding.db_get(this[kContext], key, options, callback)
+}
+
+ClassicLevel.prototype._getMany = function (keys, options, callback) {
+  binding.db_get_many(this[kContext], keys, options, callback)
+}
+
+ClassicLevel.prototype._del = function (key, options, callback) {
+  binding.db_del(this[kContext], key, options, callback)
+}
+
+ClassicLevel.prototype._clear = function (options, callback) {
+  binding.db_clear(this[kContext], options, callback)
+}
+
+ClassicLevel.prototype._chainedBatch = function () {
+  return new ChainedBatch(this, this[kContext])
+}
+
+ClassicLevel.prototype._batch = function (operations, options, callback) {
+  binding.batch_do(this[kContext], operations, options, callback)
+}
+
+ClassicLevel.prototype.approximateSize = function (start, end, options, callback) {
+  if (arguments.length < 2 || typeof start === 'function' || typeof end === 'function') {
+    throw new TypeError("The arguments 'start' and 'end' are required")
+  } else if (typeof options === 'function') {
+    callback = options
+    options = null
+  } else if (typeof options !== 'object') {
+    options = null
+  }
+
+  callback = fromCallback(callback, kPromise)
+
+  if (this.status === 'opening') {
+    this.defer(() => this.approximateSize(start, end, options, callback))
+  } else if (this.status !== 'open') {
+    this.nextTick(callback, new ModuleError('Database is not open: cannot call approximateSize()', {
+      code: 'LEVEL_DATABASE_NOT_OPEN'
+    }))
+  } else {
+    const keyEncoding = this.keyEncoding(options && options.keyEncoding)
+    start = keyEncoding.encode(start)
+    end = keyEncoding.encode(end)
+    binding.db_approximate_size(this[kContext], start, end, callback)
+  }
+
+  return callback[kPromise]
+}
+
+ClassicLevel.prototype.compactRange = function (start, end, options, callback) {
+  if (arguments.length < 2 || typeof start === 'function' || typeof end === 'function') {
+    throw new TypeError("The arguments 'start' and 'end' are required")
+  } else if (typeof options === 'function') {
+    callback = options
+    options = null
+  } else if (typeof options !== 'object') {
+    options = null
+  }
+
+  callback = fromCallback(callback, kPromise)
+
+  if (this.status === 'opening') {
+    this.defer(() => this.compactRange(start, end, options, callback))
+  } else if (this.status !== 'open') {
+    this.nextTick(callback, new ModuleError('Database is not open: cannot call compactRange()', {
+      code: 'LEVEL_DATABASE_NOT_OPEN'
+    }))
+  } else {
+    const keyEncoding = this.keyEncoding(options && options.keyEncoding)
+    start = keyEncoding.encode(start)
+    end = keyEncoding.encode(end)
+    binding.db_compact_range(this[kContext], start, end, callback)
+  }
+
+  return callback[kPromise]
+}
+
+ClassicLevel.prototype.getProperty = function (property) {
   if (typeof property !== 'string') {
-    throw new Error('getProperty() requires a valid `property` argument')
+    throw new TypeError("The first argument 'property' must be a string")
   }
 
-  return binding.db_get_property(this.context, property)
-}
-
-LevelDOWN.prototype._iterator = function (options) {
+  // Is synchronous, so can't be deferred
   if (this.status !== 'open') {
-    // Prevent segfault
-    throw new Error('cannot call iterator() before open()')
+    throw new ModuleError('Database is not open', {
+      code: 'LEVEL_DATABASE_NOT_OPEN'
+    })
   }
 
-  return new Iterator(this, options)
+  return binding.db_get_property(this[kContext], property)
 }
 
-LevelDOWN.destroy = function (location, callback) {
-  if (arguments.length < 2) {
-    throw new Error('destroy() requires `location` and `callback` arguments')
-  }
-  if (typeof location !== 'string') {
-    throw new Error('destroy() requires a location string argument')
-  }
-  if (typeof callback !== 'function') {
-    throw new Error('destroy() requires a callback function argument')
+ClassicLevel.prototype._iterator = function (options) {
+  return new Iterator(this, this[kContext], options)
+}
+
+ClassicLevel.destroy = function (location, callback) {
+  if (typeof location !== 'string' || location === '') {
+    throw new TypeError("The first argument 'location' must be a non-empty string")
   }
 
+  callback = fromCallback(callback, kPromise)
   binding.destroy_db(location, callback)
+  return callback[kPromise]
 }
 
-LevelDOWN.repair = function (location, callback) {
-  if (arguments.length < 2) {
-    throw new Error('repair() requires `location` and `callback` arguments')
-  }
-  if (typeof location !== 'string') {
-    throw new Error('repair() requires a location string argument')
-  }
-  if (typeof callback !== 'function') {
-    throw new Error('repair() requires a callback function argument')
+ClassicLevel.repair = function (location, callback) {
+  if (typeof location !== 'string' || location === '') {
+    throw new TypeError("The first argument 'location' must be a non-empty string")
   }
 
+  callback = fromCallback(callback, kPromise)
   binding.repair_db(location, callback)
+  return callback[kPromise]
 }
 
-module.exports = LevelDOWN
+exports.ClassicLevel = ClassicLevel

@@ -22,8 +22,6 @@ const sourceData = (function () {
   return d
 }())
 
-test('setUp common', testCommon.setUp)
-
 // TODO: fix this test. It asserted that we didn't segfault if user code had an
 // infinite loop leading to stack exhaustion, which caused a node::FatalException()
 // call in our Iterator to segfault. This was fixed in 2014 (commit 85e6a38).
@@ -84,5 +82,5 @@ test('iterate over a large iterator with a large watermark', function (t) {
 })
 
 test('tearDown', function (t) {
-  db.close(testCommon.tearDown.bind(null, t))
+  db.close(t.end.bind(t))
 })
