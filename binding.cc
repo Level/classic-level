@@ -1792,9 +1792,9 @@ private:
 };
 
 /**
- * Moves an iterator to next element.
+ * Advance repeatedly and get multiple entries at once.
  */
-NAPI_METHOD(iterator_next) {
+NAPI_METHOD(iterator_nextv) {
   NAPI_ARGV(3);
   NAPI_ITERATOR_CONTEXT();
 
@@ -2082,7 +2082,7 @@ NAPI_INIT() {
   NAPI_EXPORT_FUNCTION(iterator_init);
   NAPI_EXPORT_FUNCTION(iterator_seek);
   NAPI_EXPORT_FUNCTION(iterator_close);
-  NAPI_EXPORT_FUNCTION(iterator_next);
+  NAPI_EXPORT_FUNCTION(iterator_nextv);
 
   NAPI_EXPORT_FUNCTION(batch_do);
   NAPI_EXPORT_FUNCTION(batch_init);

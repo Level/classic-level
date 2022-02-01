@@ -33,7 +33,6 @@ class Iterator extends AbstractIterator {
     binding.iterator_seek(this[kContext], target)
   }
 
-  // TODO: rename iterator_next
   _next (callback) {
     if (this[kPosition] < this[kCache].length) {
       const entry = this[kCache][this[kPosition]++]
@@ -45,7 +44,7 @@ class Iterator extends AbstractIterator {
 
       // Limit the size of the cache to prevent starving the event loop
       // while we're recursively calling process.nextTick().
-      binding.iterator_next(this[kContext], 1000, this[kHandleNext])
+      binding.iterator_nextv(this[kContext], 1000, this[kHandleNext])
     }
   }
 
@@ -65,7 +64,7 @@ class Iterator extends AbstractIterator {
       process.nextTick(callback, null, [])
     } else {
       this[kCallback] = callback
-      binding.iterator_next(this[kContext], size, this[kHandleNextv])
+      binding.iterator_nextv(this[kContext], size, this[kHandleNextv])
     }
   }
 
