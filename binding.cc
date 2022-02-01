@@ -105,6 +105,16 @@ static napi_value CreateError (napi_env env, const char* str) {
   return error;
 }
 
+static napi_value CreateCodeError (napi_env env, const char* code, const char* msg) {
+  napi_value codeValue;
+  napi_create_string_utf8(env, code, strlen(code), &codeValue);
+  napi_value msgValue;
+  napi_create_string_utf8(env, msg, strlen(msg), &msgValue);
+  napi_value error;
+  napi_create_error(env, codeValue, msgValue, &error);
+  return error;
+}
+
 /**
  * Returns true if 'obj' has a property 'key'.
  */
@@ -428,7 +438,16 @@ struct BaseWorker {
   }
 
   virtual void HandleErrorCallback (napi_env env, napi_value callback) {
-    napi_value argv = CreateError(env, errMsg_);
+    napi_value argv;
+
+    if (status_.IsNotFound()) {
+      argv = CreateCodeError(env, "LEVEL_NOT_FOUND", errMsg_);
+    } else if (status_.IsCorruption()) {
+      argv = CreateCodeError(env, "LEVEL_CORRUPTION", errMsg_);
+    } else {
+      argv = CreateError(env, errMsg_);
+    }
+
     CallFunction(env, callback, 1, &argv);
   }
 
