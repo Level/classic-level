@@ -10,29 +10,27 @@ class ChainedBatch extends AbstractChainedBatch {
     super(db)
     this[kContext] = binding.batch_init(context)
   }
-}
 
-// TODO: move to class
+  _put (key, value) {
+    binding.batch_put(this[kContext], key, value)
+  }
 
-ChainedBatch.prototype._put = function (key, value) {
-  binding.batch_put(this[kContext], key, value)
-}
+  _del (key) {
+    binding.batch_del(this[kContext], key)
+  }
 
-ChainedBatch.prototype._del = function (key) {
-  binding.batch_del(this[kContext], key)
-}
+  _clear () {
+    binding.batch_clear(this[kContext])
+  }
 
-ChainedBatch.prototype._clear = function () {
-  binding.batch_clear(this[kContext])
-}
+  _write (options, callback) {
+    binding.batch_write(this[kContext], options, callback)
+  }
 
-ChainedBatch.prototype._write = function (options, callback) {
-  binding.batch_write(this[kContext], options, callback)
-}
-
-ChainedBatch.prototype._close = function (callback) {
-  // TODO: close native batch (currently done on GC)
-  process.nextTick(callback)
+  _close (callback) {
+    // TODO: close native batch (currently done on GC)
+    process.nextTick(callback)
+  }
 }
 
 exports.ChainedBatch = ChainedBatch
