@@ -1663,7 +1663,7 @@ NAPI_METHOD(iterator_seek) {
   NAPI_ITERATOR_CONTEXT();
 
   if (iterator->isEnding_ || iterator->hasEnded_) {
-    napi_throw_error(env, NULL, "iterator has ended");
+    NAPI_RETURN_UNDEFINED();
   }
 
   leveldb::Slice target = ToSlice(env, argv[1]);
