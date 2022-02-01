@@ -44,6 +44,7 @@ yarn.lock
 .travis.yml
 .cirrus.yml
 appveyor.yml
+tsconfig.json
 
 # Unknown
 leakydb

@@ -4,9 +4,10 @@
   "description": "An abstract-level database backed by LevelDB",
   "license": "MIT",
   "main": "leveldown.js",
+  "types": "./leveldown.d.ts",
   "scripts": {
     "install": "node-gyp-build",
-    "test": "standard && (nyc -s tape test/*-test.js | faucet) && nyc report",
+    "test": "standard && ts-standard *.ts && (nyc -s tape test/*-test.js | faucet) && nyc report",
     "test-gc": "node --expose-gc test/gc.js",
     "test-electron": "electron test/electron.js",
     "test-prebuild": "cross-env PREBUILDS_ONLY=1 npm t",
@@ -32,6 +33,8 @@
     "node-gyp-build": "^4.3.0"
   },
   "devDependencies": {
+    "@types/node": "^17.0.13",
+    "@voxpelli/tsconfig": "^3.1.0",
     "async-each": "^1.0.3",
     "cross-env": "^7.0.3",
     "delayed": "^2.0.0",
@@ -51,7 +54,9 @@
     "rimraf": "^3.0.0",
     "standard": "^16.0.3",
     "tape": "^5.0.1",
-    "tempy": "^1.0.1"
+    "tempy": "^1.0.1",
+    "ts-standard": "^11.0.0",
+    "typescript": "^4.5.5"
   },
   "gypfile": true,
   "repository": {
