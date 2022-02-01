@@ -1,7 +1,5 @@
 'use strict'
 
-// TODO: rename file
-
 const { AbstractLevel } = require('abstract-level')
 const ModuleError = require('module-error')
 const { fromCallback } = require('catering')

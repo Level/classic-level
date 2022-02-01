@@ -3,8 +3,8 @@
   "version": "0.0.0",
   "description": "An abstract-level database backed by LevelDB",
   "license": "MIT",
-  "main": "leveldown.js",
-  "types": "./leveldown.d.ts",
+  "main": "index.js",
+  "types": "./index.d.ts",
   "scripts": {
     "install": "node-gyp-build",
     "test": "standard && ts-standard *.ts && (nyc -s tape test/*-test.js | faucet) && nyc report",
