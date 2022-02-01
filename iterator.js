@@ -80,8 +80,7 @@ class Iterator extends AbstractIterator {
     this[kCache] = empty
     this[kCallback] = null
 
-    // TODO: rename to iterator_close
-    binding.iterator_end(this[kContext], callback)
+    binding.iterator_close(this[kContext], callback)
   }
 
   // Undocumented, exposed for tests only

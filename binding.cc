@@ -17,7 +17,7 @@
  */
 struct Database;
 struct Iterator;
-static void iterator_end_do (napi_env env, Iterator* iterator, napi_value cb);
+static void iterator_close_do (napi_env env, Iterator* iterator, napi_value cb);
 
 /**
  * Macros.
@@ -623,7 +623,7 @@ struct BaseIterator {
                const int limit,
                const bool fillCache)
     : database_(database),
-      hasEnded_(false),
+      hasClosed_(false),
       didSeek_(false),
       reverse_(reverse),
       lt_(lt),
@@ -639,7 +639,7 @@ struct BaseIterator {
   }
 
   virtual ~BaseIterator () {
-    assert(hasEnded_);
+    assert(hasClosed_);
 
     if (lt_ != NULL) delete lt_;
     if (gt_ != NULL) delete gt_;
@@ -718,10 +718,9 @@ struct BaseIterator {
     }
   }
 
-  // TODO: rename to Close()
-  void End () {
-    if (!hasEnded_) {
-      hasEnded_ = true;
+  void Close () {
+    if (!hasClosed_) {
+      hasClosed_ = true;
       delete dbIterator_;
       dbIterator_ = NULL;
       database_->ReleaseSnapshot(options_->snapshot);
@@ -792,7 +791,7 @@ struct BaseIterator {
   }
 
   Database* database_;
-  bool hasEnded_;
+  bool hasClosed_;
 
 private:
   leveldb::Iterator* dbIterator_;
@@ -834,8 +833,8 @@ struct Iterator final : public BaseIterator {
       highWaterMark_(highWaterMark),
       landed_(false),
       nexting_(false),
-      isEnding_(false),
-      endWorker_(NULL),
+      isClosing_(false),
+      closeWorker_(NULL),
       ref_(NULL) {
   }
 
@@ -898,8 +897,8 @@ struct Iterator final : public BaseIterator {
   const uint32_t highWaterMark_;
   bool landed_;
   bool nexting_;
-  bool isEnding_;
-  BaseWorker* endWorker_;
+  bool isClosing_;
+  BaseWorker* closeWorker_;
   std::vector<Entry> cache_;
 
 private:
@@ -926,10 +925,10 @@ static void env_cleanup_hook (void* arg) {
 
     // TODO: does not do `napi_delete_reference(env, iterator->ref_)`. Problem?
     for (it = iterators.begin(); it != iterators.end(); ++it) {
-      it->second->End();
+      it->second->Close();
     }
 
-    // Having ended the iterators (and released snapshots) we can safely close.
+    // Having closed the iterators (and released snapshots) we can safely close.
     database->CloseDatabase();
   }
 }
@@ -1086,8 +1085,7 @@ NAPI_METHOD(db_close) {
   std::map<uint32_t, Iterator*>::iterator it;
 
   for (it = iterators.begin(); it != iterators.end(); ++it) {
-    // TODO: rename to iterator_close_do
-    iterator_end_do(env, it->second, noop);
+    iterator_close_do(env, it->second, noop);
   }
 
   NAPI_RETURN_UNDEFINED();
@@ -1385,7 +1383,7 @@ struct ClearWorker final : public PriorityWorker {
       batch.Clear();
     }
 
-    iterator_->End();
+    iterator_->Close();
   }
 
 private:
@@ -1648,8 +1646,8 @@ NAPI_METHOD(iterator_init) {
                                           FinalizeIterator,
                                           NULL, &result));
 
-  // Prevent GC of JS object before the iterator is ended (explicitly or on
-  // db close) and keep track of non-ended iterators to end them on db close.
+  // Prevent GC of JS object before the iterator is closed (explicitly or on
+  // db close) and keep track of non-closed iterators to close them on db close.
   iterator->Attach(env, result);
 
   return result;
@@ -1662,7 +1660,7 @@ NAPI_METHOD(iterator_seek) {
   NAPI_ARGV(2);
   NAPI_ITERATOR_CONTEXT();
 
-  if (iterator->isEnding_ || iterator->hasEnded_) {
+  if (iterator->isClosing_ || iterator->hasClosed_) {
     NAPI_RETURN_UNDEFINED();
   }
 
@@ -1675,20 +1673,19 @@ NAPI_METHOD(iterator_seek) {
 }
 
 /**
- * Worker class for ending an iterator
- * TODO: rename to CloseIteratorWorker
+ * Worker class for closing an iterator
  */
-struct EndWorker final : public BaseWorker {
-  EndWorker (napi_env env,
+struct CloseIteratorWorker final : public BaseWorker {
+  CloseIteratorWorker (napi_env env,
              Iterator* iterator,
              napi_value callback)
-    : BaseWorker(env, iterator->database_, callback, "classic_level.iterator.end"),
+    : BaseWorker(env, iterator->database_, callback, "classic_level.iterator.close"),
       iterator_(iterator) {}
 
-  ~EndWorker () {}
+  ~CloseIteratorWorker () {}
 
   void DoExecute () override {
-    iterator_->End();
+    iterator_->Close();
   }
 
   void DoFinally (napi_env env) override {
@@ -1701,17 +1698,16 @@ private:
 };
 
 /**
- * Called by NAPI_METHOD(iterator_end) and also when closing
+ * Called by NAPI_METHOD(iterator_close) and also when closing
  * open iterators during NAPI_METHOD(db_close).
  */
-static void iterator_end_do (napi_env env, Iterator* iterator, napi_value cb) {
-  if (!iterator->isEnding_ && !iterator->hasEnded_) {
-    EndWorker* worker = new EndWorker(env, iterator, cb);
-    iterator->isEnding_ = true;
+static void iterator_close_do (napi_env env, Iterator* iterator, napi_value cb) {
+  if (!iterator->isClosing_ && !iterator->hasClosed_) {
+    CloseIteratorWorker* worker = new CloseIteratorWorker(env, iterator, cb);
+    iterator->isClosing_ = true;
 
     if (iterator->nexting_) {
-      // TODO: rename to closeWorker_
-      iterator->endWorker_ = worker;
+      iterator->closeWorker_ = worker;
     } else {
       worker->Queue(env);
     }
@@ -1719,13 +1715,13 @@ static void iterator_end_do (napi_env env, Iterator* iterator, napi_value cb) {
 }
 
 /**
- * Ends an iterator.
+ * Closes an iterator.
  */
-NAPI_METHOD(iterator_end) {
+NAPI_METHOD(iterator_close) {
   NAPI_ARGV(2);
   NAPI_ITERATOR_CONTEXT();
 
-  iterator_end_do(env, iterator, argv[1]);
+  iterator_close_do(env, iterator, argv[1]);
 
   NAPI_RETURN_UNDEFINED();
 }
@@ -1778,12 +1774,12 @@ struct NextWorker final : public BaseWorker {
   }
 
   void DoFinally (napi_env env) override {
-    // clean up & handle the next/end state
+    // clean up & handle the next/close state
     iterator_->nexting_ = false;
 
-    if (iterator_->endWorker_ != NULL) {
-      iterator_->endWorker_->Queue(env);
-      iterator_->endWorker_ = NULL;
+    if (iterator_->closeWorker_ != NULL) {
+      iterator_->closeWorker_->Queue(env);
+      iterator_->closeWorker_ = NULL;
     }
 
     BaseWorker::DoFinally(env);
@@ -1808,8 +1804,7 @@ NAPI_METHOD(iterator_next) {
 
   napi_value callback = argv[2];
 
-  // TODO: rename to isClosing/hasClosed
-  if (iterator->isEnding_ || iterator->hasEnded_) {
+  if (iterator->isClosing_ || iterator->hasClosed_) {
     napi_value argv = CreateCodeError(env, "LEVEL_ITERATOR_NOT_OPEN", "Iterator is not open");
     NAPI_STATUS_THROWS(CallFunction(env, callback, 1, &argv));
     NAPI_RETURN_UNDEFINED();
@@ -2086,7 +2081,7 @@ NAPI_INIT() {
 
   NAPI_EXPORT_FUNCTION(iterator_init);
   NAPI_EXPORT_FUNCTION(iterator_seek);
-  NAPI_EXPORT_FUNCTION(iterator_end);
+  NAPI_EXPORT_FUNCTION(iterator_close);
   NAPI_EXPORT_FUNCTION(iterator_next);
 
   NAPI_EXPORT_FUNCTION(batch_do);
