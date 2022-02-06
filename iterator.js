@@ -6,6 +6,7 @@ const binding = require('./binding')
 const kContext = Symbol('context')
 const kCache = Symbol('cache')
 const kFinished = Symbol('finished')
+const kFirst = Symbol('first')
 const kPosition = Symbol('position')
 const kHandleNext = Symbol('handleNext')
 const kHandleNextv = Symbol('handleNextv')
@@ -20,12 +21,14 @@ class Iterator extends AbstractIterator {
     this[kHandleNext] = this[kHandleNext].bind(this)
     this[kHandleNextv] = this[kHandleNextv].bind(this)
     this[kCallback] = null
+    this[kFirst] = true
     this[kCache] = empty
     this[kFinished] = false
     this[kPosition] = 0
   }
 
   _seek (target, options) {
+    this[kFirst] = true
     this[kCache] = empty
     this[kFinished] = false
     this[kPosition] = 0
@@ -42,9 +45,15 @@ class Iterator extends AbstractIterator {
     } else {
       this[kCallback] = callback
 
-      // Limit the size of the cache to prevent starving the event loop
-      // while we're recursively calling process.nextTick().
-      binding.iterator_nextv(this[kContext], 1000, this[kHandleNext])
+      if (this[kFirst]) {
+        // It's common to only want one entry initially or after a seek()
+        this[kFirst] = false
+        binding.iterator_nextv(this[kContext], 1, this[kHandleNext])
+      } else {
+        // Limit the size of the cache to prevent starving the event loop
+        // while we're recursively calling process.nextTick().
+        binding.iterator_nextv(this[kContext], 1000, this[kHandleNext])
+      }
     }
   }
 
@@ -64,6 +73,7 @@ class Iterator extends AbstractIterator {
       process.nextTick(callback, null, [])
     } else {
       this[kCallback] = callback
+      this[kFirst] = false
       binding.iterator_nextv(this[kContext], size, this[kHandleNextv])
     }
   }

@@ -831,7 +831,7 @@ struct Iterator final : public BaseIterator {
       keyAsBuffer_(keyAsBuffer),
       valueAsBuffer_(valueAsBuffer),
       highWaterMark_(highWaterMark),
-      landed_(false),
+      first_(true),
       nexting_(false),
       isClosing_(false),
       closeWorker_(NULL),
@@ -857,7 +857,9 @@ struct Iterator final : public BaseIterator {
     leveldb::Slice empty;
 
     while (true) {
-      if (landed_) Next();
+      if (!first_) Next();
+      else first_ = false;
+
       if (!Valid() || !Increment()) break;
 
       if (keys_ && values_) {
@@ -875,12 +877,6 @@ struct Iterator final : public BaseIterator {
         bytesRead += v.size();
       }
 
-      // TODO: this logic should only apply to next(). Can it be moved to JS?
-      if (!landed_) {
-        landed_ = true;
-        return true;
-      }
-
       if (bytesRead > highWaterMark_ || cache_.size() >= size) {
         return true;
       }
@@ -895,7 +891,7 @@ struct Iterator final : public BaseIterator {
   const bool keyAsBuffer_;
   const bool valueAsBuffer_;
   const uint32_t highWaterMark_;
-  bool landed_;
+  bool first_;
   bool nexting_;
   bool isClosing_;
   BaseWorker* closeWorker_;
@@ -1665,7 +1661,7 @@ NAPI_METHOD(iterator_seek) {
   }
 
   leveldb::Slice target = ToSlice(env, argv[1]);
-  iterator->landed_ = false;
+  iterator->first_ = true;
   iterator->Seek(target);
 
   DisposeSliceBuffer(target);
