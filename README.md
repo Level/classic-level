@@ -1,6 +1,6 @@
 # classic-level
 
-**An [`abstract-level`](https://github.com/Level/abstract-level) database backed by [LevelDB](https://github.com/google/leveldb).** The successor to `leveldown`.
+**An [`abstract-level`](https://github.com/Level/abstract-level) database backed by [LevelDB](https://github.com/google/leveldb).** The successor to [`leveldown`](https://github.com/Level/leveldown) with builtin encodings, sublevels, events, promises and support of Uint8Array. If you are upgrading please see [`UPGRADING.md`](UPGRADING.md).
 
 > :pushpin: Which module should I use? What is `abstract-level`? Head over to the [FAQ](https://github.com/Level/community#faq).
 
@@ -17,75 +17,141 @@
 
 <details><summary>Click to expand</summary>
 
-- [Introduction](#introduction)
+- [Usage](#usage)
 - [Supported Platforms](#supported-platforms)
-  - [Notes](#notes)
 - [API](#api)
-  - [`db = leveldown(location)`](#db--leveldownlocation)
-  - [`db.open([options, ]callback)`](#dbopenoptions-callback)
-    - [`options`](#options)
-  - [`db.close(callback)`](#dbclosecallback)
-  - [`db.put(key, value[, options], callback)`](#dbputkey-value-options-callback)
-    - [`options`](#options-1)
-  - [`db.get(key[, options], callback)`](#dbgetkey-options-callback)
-    - [`options`](#options-2)
+  - [`db = new ClassicLevel(location[, options])`](#db--new-classiclevellocation-options)
+  - [`db.location`](#dblocation)
+  - [`db.status`](#dbstatus)
+  - [`db.open([options][, callback])`](#dbopenoptions-callback)
+  - [`db.close([callback])`](#dbclosecallback)
+  - [`db.supports`](#dbsupports)
+  - [`db.get(key[, options][, callback])`](#dbgetkey-options-callback)
   - [`db.getMany(keys[, options][, callback])`](#dbgetmanykeys-options-callback)
-  - [`db.del(key[, options], callback)`](#dbdelkey-options-callback)
-    - [`options`](#options-3)
-  - [`db.batch(operations[, options], callback)` _(array form)_](#dbbatchoperations-options-callback-array-form)
-  - [`db.batch()` _(chained form)_](#dbbatch-chained-form)
-  - [`db.approximateSize(start, end, callback)`](#dbapproximatesizestart-end-callback)
-  - [`db.compactRange(start, end, callback)`](#dbcompactrangestart-end-callback)
+  - [`db.put(key, value[, options][, callback])`](#dbputkey-value-options-callback)
+  - [`db.del(key[, options][, callback])`](#dbdelkey-options-callback)
+  - [`db.batch(operations[, options][, callback])`](#dbbatchoperations-options-callback)
+  - [`db.batch()`](#dbbatch)
+  - [`iterator = db.iterator([options])`](#iterator--dbiteratoroptions)
+  - [`keyIterator = db.keys([options])`](#keyiterator--dbkeysoptions)
+  - [`valueIterator = db.values([options])`](#valueiterator--dbvaluesoptions)
+  - [`db.clear([options][, callback])`](#dbclearoptions-callback)
+  - [`sublevel = db.sublevel(name[, options])`](#sublevel--dbsublevelname-options)
+  - [`db.approximateSize(start, end[, options][, callback])`](#dbapproximatesizestart-end-options-callback)
+  - [`db.compactRange(start, end[, options][, callback])`](#dbcompactrangestart-end-options-callback)
   - [`db.getProperty(property)`](#dbgetpropertyproperty)
-  - [`db.iterator([options])`](#dbiteratoroptions)
-  - [`db.clear([options, ]callback)`](#dbclearoptions-callback)
   - [`chainedBatch`](#chainedbatch)
-    - [`chainedBatch.put(key, value)`](#chainedbatchputkey-value)
-    - [`chainedBatch.del(key)`](#chainedbatchdelkey)
+    - [`chainedBatch.put(key, value[, options])`](#chainedbatchputkey-value-options)
+    - [`chainedBatch.del(key[, options])`](#chainedbatchdelkey-options)
     - [`chainedBatch.clear()`](#chainedbatchclear)
-    - [`chainedBatch.write([options, ]callback)`](#chainedbatchwriteoptions-callback)
+    - [`chainedBatch.write([options][, callback])`](#chainedbatchwriteoptions-callback)
+    - [`chainedBatch.close([callback])`](#chainedbatchclosecallback)
+    - [`chainedBatch.length`](#chainedbatchlength)
     - [`chainedBatch.db`](#chainedbatchdb)
   - [`iterator`](#iterator)
     - [`for await...of iterator`](#for-awaitof-iterator)
     - [`iterator.next([callback])`](#iteratornextcallback)
-    - [`iterator.seek(key)`](#iteratorseekkey)
-    - [`iterator.end([callback])`](#iteratorendcallback)
+    - [`iterator.nextv(size[, options][, callback])`](#iteratornextvsize-options-callback)
+    - [`iterator.all([options][, callback])`](#iteratoralloptions-callback)
+    - [`iterator.seek(target[, options])`](#iteratorseektarget-options)
+    - [`iterator.close([callback])`](#iteratorclosecallback)
     - [`iterator.db`](#iteratordb)
-  - [`leveldown.destroy(location, callback)`](#leveldowndestroylocation-callback)
-  - [`leveldown.repair(location, callback)`](#leveldownrepairlocation-callback)
-- [Safety](#safety)
-  - [Database State](#database-state)
-- [Snapshots](#snapshots)
-- [Getting Support](#getting-support)
-- [Contributing](#contributing)
-  - [Git Submodules](#git-submodules)
+    - [`iterator.db`](#iteratordb-1)
+    - [`iterator.count`](#iteratorcount)
+    - [`iterator.limit`](#iteratorlimit)
+  - [`keyIterator`](#keyiterator)
+  - [`valueIterator`](#valueiterator)
+  - [`sublevel`](#sublevel)
+    - [`sublevel.prefix`](#sublevelprefix)
+    - [`sublevel.db`](#subleveldb)
+  - [`ClassicLevel.destroy(location[, callback])`](#classicleveldestroylocation-callback)
+  - [`ClassicLevel.repair(location[, callback])`](#classiclevelrepairlocation-callback)
+- [Development](#development)
+  - [Getting Started](#getting-started)
+  - [Contributing](#contributing)
   - [Publishing](#publishing)
 - [Donate](#donate)
 - [License](#license)
 
 </details>
 
-## Introduction
+## Usage
 
-This module was originally part of [`levelup`](https://github.com/Level/levelup) but was later extracted and now serves as a stand-alone binding for LevelDB.
+```js
+const { ClassicLevel } = require('classic-level')
 
-It is **strongly recommended** that you use `levelup` in preference to `leveldown` unless you have measurable performance reasons to do so. `levelup` is optimised for usability and safety. Although we are working to improve the safety of the `leveldown` interface it is still easy to crash your Node process if you don't do things in just the right way.
+// Create a database
+const db = new ClassicLevel('./db', { valueEncoding: 'json' })
 
-See the section on [safety](#safety) below for details of known unsafe operations with `leveldown`.
+// Add an entry with key 'a' and value 1
+await db.put('a', 1)
+
+// Add multiple entries
+await db.batch([{ type: 'put', key: 'b', value: 2 }])
+
+// Get value of key 'a': 1
+const value = await db.get('a')
+
+// Iterate entries with keys that are greater than 'a'
+for await (const [key, value] of db.iterator({ gt: 'a' })) {
+  console.log(value) // 2
+}
+```
+
+All asynchronous methods also support callbacks.
+
+<details><summary>Callback example</summary>
+
+```js
+db.put('example', { hello: 'world' }, (err) => {
+  if (err) throw err
+
+  db.get('example', (err, value) => {
+    if (err) throw err
+    console.log(value) // { hello: 'world' }
+  })
+})
+```
+
+</details>
+
+Usage from TypeScript requires generic type parameters.
+
+<details><summary>TypeScript example</summary>
+
+```ts
+// Specify types of keys and values (any, in the case of json).
+// The generic type parameters default to ClassicLevel<string, string>.
+const db = new ClassicLevel<string, any>('./db', { valueEncoding: 'json' })
+
+// All relevant methods then use those types
+await db.put('a', { x: 123 })
+
+// Specify different types when overriding encoding per operation
+await db.get<string, string>('a', { valueEncoding: 'utf8' })
+
+// Though in some cases TypeScript can infer them
+await db.get('a', { valueEncoding: db.valueEncoding('utf8') })
+
+// It works the same for sublevels
+const abc = db.sublevel('abc')
+const xyz = db.sublevel<string, any>('xyz', { valueEncoding: 'json' })
+```
+
+</details>
 
 ## Supported Platforms
 
-We aim to support _at least_ Active LTS and Current Node.js releases, Electron 5.0.0, as well as any future Node.js and Electron releases thanks to [N-API](https://nodejs.org/api/n-api.html). The minimum node version for `leveldown` is `10.12.0`. Conversely, for node >= 12, the minimum `leveldown` version is `5.0.0`.
+We aim to support _at least_ Active LTS and Current Node.js releases, Electron 5.0.0, as well as any future Node.js and Electron releases thanks to [N-API](https://nodejs.org/api/n-api.html).
 
-The `leveldown` npm package ships with prebuilt binaries for popular 64-bit platforms as well as ARM, M1, Android and Alpine (musl) and is known to work on:
+The `classic-level` npm package ships with prebuilt binaries for popular 64-bit platforms as well as ARM, M1, Android, Alpine (musl), Windows 32-bit, Linux flavors with an old glibc (Debian 8, Ubuntu 14.04, RHEL 7, CentOS 7) and is known to work on:
 
-- **Linux** (including ARM platforms such as Raspberry Pi and Kindle)
+- **Linux**, including ARM platforms such as Raspberry Pi and Kindle
 - **Mac OS** (10.7 and later)
-- **Solaris** (SmartOS & Nodejitsu)
-- **FreeBSD**
 - **Windows**
+- **FreeBSD**
 
-When installing `leveldown`, [`node-gyp-build`](https://github.com/prebuild/node-gyp-build) will check if a compatible binary exists and fallback to a compile step if it doesn't. In that case you'll need a [valid `node-gyp` installation](https://github.com/nodejs/node-gyp#installation).
+When installing `classic-level`, [`node-gyp-build`](https://github.com/prebuild/node-gyp-build) will check if a compatible binary exists and fallback to compiling from source if it doesn't. In that case you'll need a [valid `node-gyp` installation](https://github.com/nodejs/node-gyp#installation).
 
 If you don't want to use the prebuilt binary for the platform you are installing on, specify the `--build-from-source` flag when you install. One of:
 
@@ -94,62 +160,86 @@ npm install --build-from-source
 npm install classic-level --build-from-source
 ```
 
-If you are working on `leveldown` itself and want to re-compile the C++ code, run `npm run rebuild`.
+If you are working on `classic-level` itself and want to recompile the C++ code, run `npm run rebuild`.
 
-### Notes
-
-- If you get compilation errors on Node.js 12, please ensure you have `leveldown` >= 5. This can be checked by running `npm ls leveldown`.
-- On Linux flavors with an old glibc (Debian 8, Ubuntu 14.04, RHEL 7, CentOS 7) you must either update `leveldown` to >= 5.3.0 or use `--build-from-source`.
-- On Alpine 3 it was previously necessary to use `--build-from-source`. This is no longer the case.
-- The Android prebuilds are made for and built against Node.js core rather than the [`nodejs-mobile`](https://github.com/JaneaSystems/nodejs-mobile) fork.
+Note: the Android prebuilds are made for and built against Node.js core rather than the [`nodejs-mobile`](https://github.com/JaneaSystems/nodejs-mobile) fork.
 
 ## API
 
-_If you are upgrading: please see [`UPGRADING.md`](UPGRADING.md)._
+The API of `classic-level` follows that of [`abstract-level`](https://github.com/Level/abstract-level) with a few additional options and methods specific to LevelDB. The documentation below covers it all except for [Encodings](https://github.com/Level/abstract-level#encodings), [Events](https://github.com/Level/abstract-level#events) and [Errors](https://github.com/Level/abstract-level#errors) which are exclusively documented in `abstract-level`.
 
-### `db = leveldown(location)`
+An `abstract-level` and thus `classic-level` database is at its core a [key-value database](https://en.wikipedia.org/wiki/Key%E2%80%93value_database). A key-value pair is referred to as an _entry_ here and typically returned as an array, comparable to [`Object.entries()`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/entries).
 
-Returns a new `leveldown` instance. `location` is a String pointing to the LevelDB location to be opened.
+### `db = new ClassicLevel(location[, options])`
 
-### `db.open([options, ]callback)`
+Create a database or open an existing database. The `location` argument must be a directory path (relative or absolute) where LevelDB will store its files. The optional `options` object may contain:
 
-Open the store. The `callback` function will be called with no arguments when the database has been successfully opened, or with a single `error` argument if the open operation failed for any reason.
+- `keyEncoding` (string or object, default `'utf8'`): encoding to use for keys
+- `valueEncoding` (string or object, default `'utf8'`): encoding to use for values.
 
-#### `options`
+See [Encodings](https://github.com/Level/abstract-level#encodings) for a full description of these options. Other `options` (except `passive`) are forwarded to `db.open()` which is automatically called in a next tick after the constructor returns. Any read & write operations are queued internally until the database has finished opening. If opening fails, those queued operations will yield errors.
 
-The optional `options` argument may contain:
+### `db.location`
 
-- `createIfMissing` (boolean, default: `true`): If `true`, will initialise an empty database at the specified location if one doesn't already exist. If `false` and a database doesn't exist you will receive an error in your `open()` callback and your database won't open.
+Read-only getter that returns the `location` string that was passed to the constructor (as-is).
 
-- `errorIfExists` (boolean, default: `false`): If `true`, you will receive an error in your `open()` callback if the database exists at the specified location.
+### `db.status`
 
-- `compression` (boolean, default: `true`): If `true`, all _compressible_ data will be run through the Snappy compression algorithm before being stored. Snappy is very fast and shouldn't gain much speed by disabling so leave this on unless you have good reason to turn it off.
+Read-only getter that returns a string reflecting the current state of the database:
 
-- `cacheSize` (number, default: `8 * 1024 * 1024` = 8MB): The size (in bytes) of the in-memory [LRU](http://en.wikipedia.org/wiki/Cache_algorithms#Least_Recently_Used) cache with frequently used uncompressed block contents.
+- `'opening'` - waiting for the database to be opened
+- `'open'` - successfully opened the database
+- `'closing'` - waiting for the database to be closed
+- `'closed'` - successfully closed the database.
 
-**Advanced options**
+### `db.open([options][, callback])`
 
-The following options are for advanced performance tuning. Modify them only if you can prove actual benefit for your particular application.
+Open the database. The `callback` function will be called with no arguments when successfully opened, or with a single error argument if opening failed. If no callback is provided, a promise is returned. Options passed to `open()` take precedence over options passed to the database constructor.
 
-- `writeBufferSize` (number, default: `4 * 1024 * 1024` = 4MB): The maximum size (in bytes) of the log (in memory and stored in the .log file on disk). Beyond this size, LevelDB will convert the log data to the first level of sorted table files. From the LevelDB documentation:
+The optional `options` object may contain:
 
-> Larger values increase performance, especially during bulk loads. Up to two write buffers may be held in memory at the same time, so you may wish to adjust this parameter to control memory usage. Also, a larger write buffer will result in a longer recovery time the next time the database is opened.
+- `createIfMissing` (boolean, default: `true`): If `true`, create an empty database if one doesn't already exist. If `false` and the database doesn't exist, opening will fail.
+- `errorIfExists` (boolean, default: `false`): If `true` and the database already exists, opening will fail.
+- `passive` (boolean, default: `false`): Wait for, but do not initiate, opening of the database.
 
-- `blockSize` (number, default `4096` = 4K): The _approximate_ size of the blocks that make up the table files. The size related to uncompressed data (hence "approximate"). Blocks are indexed in the table file and entry-lookups involve reading an entire block and parsing to discover the required entry.
+For advanced performance tuning, the `options` object may also contain the following. Modify these options only if you can prove actual benefit for your particular application.
 
-- `maxOpenFiles` (number, default: `1000`): The maximum number of files that LevelDB is allowed to have open at a time. If your data store is likely to have a large working set, you may increase this value to prevent file descriptor churn. To calculate the number of files required for your working set, divide your total data by `'maxFileSize'`.
+<details>
+<summary>Click to expand</summary>
+
+- `compression` (boolean, default: `true`): Unless set to `false`, all _compressible_ data will be run through the Snappy compression algorithm before being stored. Snappy is very fast so leave this on unless you have good reason to turn it off.
+
+- `cacheSize` (number, default: `8 * 1024 * 1024`): The size (in bytes) of the in-memory [LRU](http://en.wikipedia.org/wiki/Least_Recently_Used) cache with frequently used uncompressed block contents.
+
+- `writeBufferSize` (number, default: `4 * 1024 * 1024`): The maximum size (in bytes) of the log (in memory and stored in the `.log` file on disk). Beyond this size, LevelDB will convert the log data to the first level of sorted table files. From LevelDB documentation:
+
+  > Larger values increase performance, especially during bulk loads. Up to two write buffers may be held in memory at the same time, so you may wish to adjust this parameter to control memory usage. Also, a larger write buffer will result in a longer recovery time the next time the database is opened.
+
+- `blockSize` (number, default: `4096`): The _approximate_ size of the blocks that make up the table files. The size relates to uncompressed data (hence "approximate"). Blocks are indexed in the table file and entry-lookups involve reading an entire block and parsing to discover the required entry.
+
+- `maxOpenFiles` (number, default: `1000`): The maximum number of files that LevelDB is allowed to have open at a time. If your database is likely to have a large working set, you may increase this value to prevent file descriptor churn. To calculate the number of files required for your working set, divide your total data size by `maxFileSize`.
 
 - `blockRestartInterval` (number, default: `16`): The number of entries before restarting the "delta encoding" of keys within blocks. Each "restart" point stores the full key for the entry, between restarts, the common prefix of the keys for those entries is omitted. Restarts are similar to the concept of keyframes in video encoding and are used to minimise the amount of space required to store keys. This is particularly helpful when using deep namespacing / prefixing in your keys.
 
-- `maxFileSize` (number, default: `2* 1024 * 1024` = 2MB): The maximum amount of bytes to write to a file before switching to a new one. From the LevelDB documentation:
+- `maxFileSize` (number, default: `2 * 1024 * 1024`): The maximum amount of bytes to write to a file before switching to a new one. From LevelDB documentation:
 
-> ... if your filesystem is more efficient with larger files, you could consider increasing the value. The downside will be longer compactions and hence longer latency/performance hiccups. Another reason to increase this parameter might be when you are initially populating a large database.
+  > If your filesystem is more efficient with larger files, you could consider increasing the value. The downside will be longer compactions and hence longer latency / performance hiccups. Another reason to increase this parameter might be when you are initially populating a large database.
 
-### `db.close(callback)`
+</details>
 
-`close()` is an instance method on an existing database object. The underlying LevelDB database will be closed and the `callback` function will be called with no arguments if the operation is successful or with a single `error` argument if the operation failed for any reason.
+It's generally not necessary to call `open()` because it's automatically called by the database constructor. It may however be useful to capture an error from failure to open, that would otherwise not surface until another method like `db.get()` is called. It's also possible to reopen the database after it has been closed with [`close()`](#dbclosecallback). Once `open()` has then been called, any read & write operations will again be queued internally until opening has finished.
 
-`leveldown` waits for any pending operations to finish before closing. For example:
+The `open()` and `close()` methods are idempotent. If the database is already open, the `callback` will be called in a next tick. If opening is already in progress, the `callback` will be called when that has finished. If closing is in progress, the database will be reopened once closing has finished. Likewise, if `close()` is called after `open()`, the database will be closed once opening has finished and the prior `open()` call will receive an error.
+
+### `db.close([callback])`
+
+Close the database. The `callback` function will be called with no arguments if closing succeeded or with a single `error` argument if closing failed. If no callback is provided, a promise is returned.
+
+A database has associated resources like file handles and locks. When the database is no longer needed (for the remainder of a program) it's recommended to call `db.close()` to free up resources. The underlying LevelDB store cannot be opened by multiple `classic-level` instances or processes simultaneously.
+
+After `db.close()` has been called, no further read & write operations are allowed unless and until `db.open()` is called again. For example, `db.get(key)` will yield an error with code [`LEVEL_DATABASE_NOT_OPEN`](https://github.com/Level/abstract-level#errors). Any unclosed iterators or chained batches will be closed by `db.close()` and can then no longer be used even when `db.open()` is called again.
+
+A `classic-level` database waits for any pending operations to finish before closing. For example:
 
 ```js
 db.put('key', 'value', function (err) {
@@ -161,176 +251,318 @@ db.close(function (err) {
 })
 ```
 
-### `db.put(key, value[, options], callback)`
+### `db.supports`
 
-Store a new entry or overwrite an existing entry.
+A [manifest](https://github.com/Level/supports) describing the features supported by this database. Might be used like so:
 
-The `key` and `value` objects may either be strings or Buffers. Other object types are converted to strings with the `toString()` method. Keys may not be `null` or `undefined` and objects converted with `toString()` should not result in an empty-string. Values may not be `null` or `undefined`. Values of `''`, `[]` and `Buffer.alloc(0)` (and any object resulting in a `toString()` of one of these) will be stored as a zero-length character array and will therefore be retrieved as either `''` or `Buffer.alloc(0)` depending on the type requested.
+```js
+if (!db.supports.permanence) {
+  throw new Error('Persistent storage is required')
+}
+```
 
-A richer set of data-types is catered for in `levelup`.
+### `db.get(key[, options][, callback])`
 
-#### `options`
+Get a value from the database by `key`. The optional `options` object may contain:
 
-The only property currently available on the `options` object is `sync` _(boolean, default: `false`)_. If you provide a `sync` value of `true` in your `options` object, LevelDB will perform a synchronous write of the data; although the operation will be asynchronous as far as Node is concerned. Normally, LevelDB passes the data to the operating system for writing and returns immediately, however a synchronous write will use `fsync()` or equivalent so your callback won't be triggered until the data is actually on disk. Synchronous filesystem writes are **significantly** slower than asynchronous writes but if you want to be absolutely sure that the data is flushed then you can use `{ sync: true }`.
+- `keyEncoding`: custom key encoding for this operation, used to encode the `key`.
+- `valueEncoding`: custom value encoding for this operation, used to decode the value.
+- `fillCache` (boolean, default: `true`): Unless set to `false`, LevelDB will fill its in-memory [LRU](http://en.wikipedia.org/wiki/Least_Recently_Used) cache with data that was read.
 
-The `callback` function will be called with no arguments if the operation is successful or with a single `error` argument if the operation failed for any reason.
+The `callback` function will be called with an error if the operation failed. If the key was not found, the error will have code [`LEVEL_NOT_FOUND`](https://github.com/Level/abstract-level#errors). If successful the first argument will be `null` and the second argument will be the value. If no callback is provided, a promise is returned.
 
-### `db.get(key[, options], callback)`
-
-Get a value from the LevelDB store by `key`.
-
-The `key` object may either be a string or a Buffer and cannot be `undefined` or `null`. Other object types are converted to strings with the `toString()` method and the resulting string _may not_ be a zero-length. A richer set of data-types is catered for in `levelup`.
-
-Values fetched via `get()` that are stored as zero-length character arrays (`null`, `undefined`, `''`, `[]`, `Buffer.alloc(0)`) will return as empty-`String` (`''`) or `Buffer.alloc(0)` when fetched with `asBuffer: true` (see below).
-
-#### `options`
-
-The optional `options` object may contain:
-
-- `asBuffer` (boolean, default: `true`): Used to determine whether to return the `value` of the entry as a string or a Buffer. Note that converting from a Buffer to a string incurs a cost so if you need a string (and the `value` can legitimately become a UTF8 string) then you should fetch it as one with `{ asBuffer: false }` and you'll avoid this conversion cost.
-- `fillCache` (boolean, default: `true`): LevelDB will by default fill the in-memory LRU Cache with data from a call to get. Disabling this is done by setting `fillCache` to `false`.
-
-The `callback` function will be called with a single `error` if the operation failed for any reason, including if the key was not found. If successful the first argument will be `null` and the second argument will be the `value` as a string or Buffer depending on the `asBuffer` option.
+A `classic-level` database supports snapshots (as indicated by `db.supports.snapshots`) which means `db.get()` _should_ read from a snapshot of the database, created at the time `db.get()` was called. This means it should not see the data of simultaneous write operations. However, there's currently a small delay before the snapshot is created.
 
 ### `db.getMany(keys[, options][, callback])`
 
-Get multiple values from the store by an array of `keys`. The optional `options` object may contain `asBuffer` and `fillCache`, as described in [`get()`](#dbgetkey-options-callback).
+Get multiple values from the database by an array of `keys`. The optional `options` object may contain:
 
-The `callback` function will be called with an `Error` if the operation failed for any reason. If successful the first argument will be `null` and the second argument will be an array of values with the same order as `keys`. If a key was not found, the relevant value will be `undefined`.
+- `keyEncoding`: custom key encoding for this operation, used to encode the `keys`.
+- `valueEncoding`: custom value encoding for this operation, used to decode values.
+- `fillCache`: same as described for [`db.get()`](#dbgetkey-options-callback).
 
-If no callback is provided, a promise is returned.
+The `callback` function will be called with an error if the operation failed. If successful the first argument will be `null` and the second argument will be an array of values with the same order as `keys`. If a key was not found, the relevant value will be `undefined`. If no callback is provided, a promise is returned.
 
-### `db.del(key[, options], callback)`
+A `classic-level` database supports snapshots (as indicated by `db.supports.snapshots`) which means `db.getMany()` _should_ read from a snapshot of the database, created at the time `db.getMany()` was called. This means it should not see the data of simultaneous write operations. However, there's currently a small delay before the snapshot is created.
 
-Delete an entry. The `key` object may either be a string or a Buffer and cannot be `undefined` or `null`. Other object types are converted to strings with the `toString()` method and the resulting string _may not_ be a zero-length. A richer set of data-types is catered for in `levelup`.
+### `db.put(key, value[, options][, callback])`
 
-#### `options`
+Add a new entry or overwrite an existing entry. The optional `options` object may contain:
 
-The only property currently available on the `options` object is `sync` _(boolean, default: `false`)_. See [`db.put()`](#dbputkey-value-options-callback) for details about this option.
+- `keyEncoding`: custom key encoding for this operation, used to encode the `key`.
+- `valueEncoding`: custom value encoding for this operation, used to encode the `value`.
+- `sync` (boolean, default: `false`): if set to `true`, LevelDB will perform a synchronous write of the data although the operation will be asynchronous as far as Node.js or Electron is concerned. Normally, LevelDB passes the data to the operating system for writing and returns immediately. In contrast, a synchronous write will use [`fsync()`](https://man7.org/linux/man-pages/man2/fsync.2.html) or equivalent, so the `put()` call will not complete until the data is actually on disk. Synchronous writes are significantly slower than asynchronous writes.
 
-The `callback` function will be called with no arguments if the operation is successful or with a single `error` argument if the operation failed for any reason.
+The `callback` function will be called with no arguments if the operation was successful or with an error if it failed. If no callback is provided, a promise is returned.
 
-### `db.batch(operations[, options], callback)` _(array form)_
+### `db.del(key[, options][, callback])`
 
-Perform multiple _put_ and/or _del_ operations in bulk. The `operations` argument must be an `Array` containing a list of operations to be executed sequentially, although as a whole they are performed as an atomic operation.
+Delete an entry by `key`. The optional `options` object may contain:
 
-Each operation is contained in an object having the following properties: `type`, `key`, `value`, where the `type` is either `'put'` or `'del'`. In the case of `'del'` the `value` property is ignored.
+- `keyEncoding`: custom key encoding for this operation, used to encode the `key`.
+- `sync` (boolean, default: `false`): same as described for [`db.put()`](#dbputkey-value-options-callback)
 
-Any entries where the `key` or `value` (in the case of `'put'`) is `null` or `undefined` will cause an error to be returned on the `callback`. Any entries where the `type` is `'put'` that have a `value` of `[]`, `''` or `Buffer.alloc(0)` will be stored as a zero-length character array and therefore be fetched during reads as either `''` or `Buffer.alloc(0)` depending on how they are requested. See [`levelup`](https://github.com/Level/levelup#batch) for full documentation on how this works in practice.
+The `callback` function will be called with no arguments if the operation was successful or with an error if it failed. If no callback is provided, a promise is returned.
 
-The optional `options` argument may contain:
+### `db.batch(operations[, options][, callback])`
 
-- `sync` (boolean, default: `false`). See [`db.put()`](#dbputkey-value-options-callback) for details about this option.
+Perform multiple _put_ and/or _del_ operations in bulk. The `operations` argument must be an array containing a list of operations to be executed sequentially, although as a whole they are performed as an atomic operation.
 
-The `callback` function will be called with no arguments if the batch is successful or with an `Error` if the batch failed for any reason.
+Each operation must be an object with at least a `type` property set to either `'put'` or `'del'`. If the `type` is `'put'`, the operation must have `key` and `value` properties. It may optionally have `keyEncoding` and / or `valueEncoding` properties to encode keys or values with a custom encoding for just that operation. If the `type` is `'del'`, the operation must have a `key` property and may optionally have a `keyEncoding` property.
 
-### `db.batch()` _(chained form)_
+An operation of either type may also have a `sublevel` property, to prefix the key of the operation with the prefix of that sublevel. This allows atomically committing data to multiple sublevels. Keys and values will be encoded by the sublevel, to the same effect as a `sublevel.batch(..)` call. In the following example, the first `value` will be encoded with `'json'` rather than the default encoding of `db`:
 
-Returns a new [`chainedBatch`](#chainedbatch) instance.
+```js
+const people = db.sublevel('people', { valueEncoding: 'json' })
+const nameIndex = db.sublevel('names')
 
-### `db.approximateSize(start, end, callback)`
+await db.batch([{
+  type: 'put',
+  sublevel: people,
+  key: '123',
+  value: {
+    name: 'Alice'
+  }
+}, {
+  type: 'put',
+  sublevel: nameIndex,
+  key: 'Alice',
+  value: '123'
+}])
+```
 
-`approximateSize()` is an instance method on an existing database object. Used to get the approximate number of bytes of file system space used by the range `[start..end)`. The result may not include recently written data.
+The optional `options` object may contain:
 
-The `start` and `end` parameters may be strings or Buffers representing keys in the LevelDB store.
+- `keyEncoding`: custom key encoding for this batch, used to encode keys.
+- `valueEncoding`: custom value encoding for this batch, used to encode values.
+- `sync` (boolean, default: `false`): same as described for [`db.put()`](#dbputkey-value-options-callback).
 
-The `callback` function will be called with a single `error` if the operation failed for any reason. If successful the first argument will be `null` and the second argument will be the approximate size as a Number.
+Encoding properties on individual operations take precedence. In the following example, the first value will be encoded with the `'utf8'` encoding and the second with `'json'`.
 
-### `db.compactRange(start, end, callback)`
+```js
+await db.batch([
+  { type: 'put', key: 'a', value: 'foo' },
+  { type: 'put', key: 'b', value: 123, valueEncoding: 'json' }
+], { valueEncoding: 'utf8' })
+```
 
-`compactRange()` is an instance method on an existing database object. Used to manually trigger a database compaction in the range `[start..end)`.
+The `callback` function will be called with no arguments if the batch was successful or with an error if it failed. If no callback is provided, a promise is returned.
 
-The `start` and `end` parameters may be strings or Buffers representing keys in the LevelDB store.
+### `db.batch()`
 
-The `callback` function will be called with no arguments if the operation is successful or with a single `error` argument if the operation failed for any reason.
+Create a [`chainedBatch`](#chainedbatch) object, when `batch()` is called with zero arguments. A chained batch can be used to build and eventually commit an atomic batch of operations. Depending on how it's used, it is possible to obtain greater performance with this form of `batch()`.
+
+### `iterator = db.iterator([options])`
+
+Create an [`iterator`](#iterator). The optional `options` object may contain the following _range options_ to control the range of entries to be iterated:
+
+- `gt` (greater than) or `gte` (greater than or equal): define the lower bound of the range to be iterated. Only entries where the key is greater than (or equal to) this option will be included in the range. When `reverse` is true the order will be reversed, but the entries iterated will be the same.
+- `lt` (less than) or `lte` (less than or equal): define the higher bound of the range to be iterated. Only entries where the key is less than (or equal to) this option will be included in the range. When `reverse` is true the order will be reversed, but the entries iterated will be the same.
+- `reverse` (boolean, default: `false`): iterate entries in reverse order. Beware that a reverse seek can be slower than a forward seek.
+- `limit` (number, default: `Infinity`): limit the number of entries yielded. This number represents a _maximum_ number of entries and will not be reached if the end of the range is reached first. A value of `Infinity` or `-1` means there is no limit. When `reverse` is true the entries with the highest keys will be returned instead of the lowest keys.
+
+The `gte` and `lte` range options take precedence over `gt` and `lt` respectively. If no range options are provided, the iterator will visit all entries of the database, starting at the lowest key and ending at the highest key (unless `reverse` is true). In addition to range options, the `options` object may contain:
+
+- `keys` (boolean, default: `true`): whether to return the key of each entry. If set to `false`, the iterator will yield keys that are `undefined`. Prefer to use `db.keys()` instead.
+- `values` (boolean, default: `true`): whether to return the value of each entry. If set to `false`, the iterator will yield values that are `undefined`. Prefer to use `db.values()` instead.
+- `keyEncoding`: custom key encoding for this iterator, used to encode range options, to encode `seek()` targets and to decode keys.
+- `valueEncoding`: custom value encoding for this iterator, used to decode values.
+- `fillCache` (boolean, default: `false`): If set to `true`, LevelDB will fill its in-memory [LRU](http://en.wikipedia.org/wiki/Least_Recently_Used) cache with data that was read.
+
+> :pushpin: To instead consume data using Node.js streams, see [`level-read-stream`](https://github.com/Level/read-stream).
+
+### `keyIterator = db.keys([options])`
+
+Create a [key iterator](#keyiterator), having the same interface as `db.iterator()` except that it yields keys instead of entries. If only keys are needed, using `db.keys()` may increase performance because values won't have to fetched, copied or decoded. Options are the same as for `db.iterator()` except that `db.keys()` does not take `keys`, `values` and `valueEncoding` options.
+
+```js
+// Iterate lazily
+for await (const key of db.keys({ gt: 'a' })) {
+  console.log(key)
+}
+
+// Get all at once. Setting a limit is recommended.
+const keys = await db.keys({ gt: 'a', limit: 10 }).all()
+```
+
+### `valueIterator = db.values([options])`
+
+Create a [value iterator](#valueiterator), having the same interface as `db.iterator()` except that it yields values instead of entries. If only values are needed, using `db.values()` may increase performance because keys won't have to fetched, copied or decoded. Options are the same as for `db.iterator()` except that `db.values()` does not take `keys` and `values` options. Note that it _does_ take a `keyEncoding` option, relevant for the encoding of range options.
+
+```js
+// Iterate lazily
+for await (const value of db.values({ gt: 'a' })) {
+  console.log(value)
+}
+
+// Get all at once. Setting a limit is recommended.
+const values = await db.values({ gt: 'a', limit: 10 }).all()
+```
+
+### `db.clear([options][, callback])`
+
+Delete all entries or a range. Not guaranteed to be atomic. Accepts the following options (with the same rules as on iterators):
+
+- `gt` (greater than) or `gte` (greater than or equal): define the lower bound of the range to be deleted. Only entries where the key is greater than (or equal to) this option will be included in the range. When `reverse` is true the order will be reversed, but the entries deleted will be the same.
+- `lt` (less than) or `lte` (less than or equal): define the higher bound of the range to be deleted. Only entries where the key is less than (or equal to) this option will be included in the range. When `reverse` is true the order will be reversed, but the entries deleted will be the same.
+- `reverse` (boolean, default: `false`): delete entries in reverse order. Only effective in combination with `limit`, to delete the last N entries.
+- `limit` (number, default: `Infinity`): limit the number of entries to be deleted. This number represents a _maximum_ number of entries and will not be reached if the end of the range is reached first. A value of `Infinity` or `-1` means there is no limit. When `reverse` is true the entries with the highest keys will be deleted instead of the lowest keys.
+- `keyEncoding`: custom key encoding for this operation, used to encode range options.
+
+The `gte` and `lte` range options take precedence over `gt` and `lt` respectively. If no options are provided, all entries will be deleted. The `callback` function will be called with no arguments if the operation was successful or with an error if it failed. If no callback is provided, a promise is returned.
+
+### `sublevel = db.sublevel(name[, options])`
+
+Create a [sublevel](#sublevel) that has the same interface as `db` (except for additional `classic-level` methods like `db.approximateSize()`) and prefixes the keys of operations before passing them on to `db`. The `name` argument is required and must be a string.
+
+```js
+const example = db.sublevel('example')
+
+await example.put('hello', 'world')
+await db.put('a', '1')
+
+// Prints ['hello', 'world']
+for await (const [key, value] of example.iterator()) {
+  console.log([key, value])
+}
+```
+
+Sublevels effectively separate a database into sections. Think SQL tables, but evented, ranged and realtime! Each sublevel is an `AbstractLevel` instance with its own keyspace, [events](https://github.com/Level/abstract-level#events) and [encodings](https://github.com/Level/abstract-level#encodings). For example, it's possible to have one sublevel with `'buffer'` keys and another with `'utf8'` keys. The same goes for values. Like so:
+
+```js
+db.sublevel('one', { valueEncoding: 'json' })
+db.sublevel('two', { keyEncoding: 'buffer' })
+```
+
+An own keyspace means that `sublevel.iterator()` only includes entries of that sublevel, `sublevel.clear()` will only delete entries of that sublevel, and so forth. Range options get prefixed too.
+
+Fully qualified keys (as seen from the parent database) take the form of `prefix + key` where `prefix` is `separator + name + separator`. If `name` is empty, the effective prefix is two separators. Sublevels can be nested: if `db` is itself a sublevel then the effective prefix is a combined prefix, e.g. `'!one!!two!'`. Note that a parent database will see its own keys as well as keys of any nested sublevels:
+
+```js
+// Prints ['!example!hello', 'world'] and ['a', '1']
+for await (const [key, value] of db.iterator()) {
+  console.log([key, value])
+}
+```
+
+> :pushpin: The key structure is equal to that of [`subleveldown`](https://github.com/Level/subleveldown) which offered sublevels before they were built-in to `abstract-level` and thus `classic-level`. This means that an `classic-level` sublevel can read sublevels previously created with (and populated by) `subleveldown`.
+
+Internally, sublevels operate on keys that are either a string, Buffer or Uint8Array, depending on choice of encoding. Which is to say: binary keys are fully supported. The `name` must however always be a string and can only contain ASCII characters.
+
+The optional `options` object may contain:
+
+- `separator` (string, default: `'!'`): Character for separating sublevel names from user keys and each other. Must sort before characters used in `name`. An error will be thrown if that's not the case.
+- `keyEncoding` (string or object, default `'utf8'`): encoding to use for keys
+- `valueEncoding` (string or object, default `'utf8'`): encoding to use for values.
+
+The `keyEncoding` and `valueEncoding` options are forwarded to the `AbstractLevel` constructor and work the same, as if a new, separate database was created. They default to `'utf8'` regardless of the encodings configured on `db`. Other options are forwarded too but `classic-level` has no relevant options at the time of writing. For example, setting the `createIfMissing` option will have no effect. Why is that?
+
+Like regular databases, sublevels open themselves but they do not affect the state of the parent database. This means a sublevel can be individually closed and (re)opened. If the sublevel is created while the parent database is opening, it will wait for that to finish. If the parent database is closed, then opening the sublevel will fail and subsequent operations on the sublevel will yield errors with code [`LEVEL_DATABASE_NOT_OPEN`](https://github.com/Level/abstract-level#errors).
+
+### `db.approximateSize(start, end[, options][, callback])`
+
+Get the approximate number of bytes of file system space used by the range `[start..end)`. The result might not include recently written data. The optional `options` object may contain:
+
+- `keyEncoding`: custom key encoding for this operation, used to encode `start` and `end`.
+
+The `callback` function will be called with a single error argument if the operation failed. If successful the first argument will be `null` and the second argument will be the approximate size as a number. If no callback is provided, a promise is returned. This method is an additional method that is not part of the [`abstract-level`](https://github.com/Level/abstract-level) interface.
+
+### `db.compactRange(start, end[, options][, callback])`
+
+Manually trigger a database compaction in the range `[start..end]`. The optional `options` object may contain:
+
+- `keyEncoding`: custom key encoding for this operation, used to encode `start` and `end`.
+
+The `callback` function will be called with no arguments if the operation was successful or with an error if it failed. If no callback is provided, a promise is returned. This method is an additional method that is not part of the [`abstract-level`](https://github.com/Level/abstract-level) interface.
 
 ### `db.getProperty(property)`
 
-`getProperty` can be used to get internal details from LevelDB. When issued with a valid property string, a readable string will be returned (this method is synchronous).
-
-Currently, the only valid properties are:
+Get internal details from LevelDB. When issued with a valid `property` string, a string value is returned synchronously. Valid properties are:
 
 - `leveldb.num-files-at-levelN`: return the number of files at level _N_, where N is an integer representing a valid level (e.g. "0").
-
 - `leveldb.stats`: returns a multi-line string describing statistics about LevelDB's internal operation.
-
 - `leveldb.sstables`: returns a multi-line string describing all of the _sstables_ that make up contents of the current database.
 
-### `db.iterator([options])`
-
-Returns a new [`iterator`](#iterator) instance. Accepts the following range options:
-
-- `gt` (greater than), `gte` (greater than or equal) define the lower bound of the range to be iterated. Only entries where the key is greater than (or equal to) this option will be included in the range. When `reverse=true` the order will be reversed, but the entries iterated will be the same.
-- `lt` (less than), `lte` (less than or equal) define the higher bound of the range to be iterated. Only entries where the key is less than (or equal to) this option will be included in the range. When `reverse=true` the order will be reversed, but the entries iterated will be the same.
-- `reverse` _(boolean, default: `false`)_: iterate entries in reverse order. Beware that a reverse seek can be slower than a forward seek.
-- `limit` _(number, default: `-1`)_: limit the number of entries collected by this iterator. This number represents a _maximum_ number of entries and may not be reached if you get to the end of the range first. A value of `-1` means there is no limit. When `reverse=true` the entries with the highest keys will be returned instead of the lowest keys.
-
-In addition to range options, `iterator()` takes the following options:
-
-- `keys` _(boolean, default: `true`)_: whether to return the key of each entry. If set to `false`, calls to `iterator.next(callback)` will yield keys with a value of `undefined` <sup>1</sup>. There is a small efficiency gain if you ultimately don't care what the keys are as they don't need to be converted and copied into JavaScript.
-- `values` _(boolean, default: `true`)_: whether to return the value of each entry. If set to `false`, calls to `iterator.next(callback)` will yield values with a value of `undefined`<sup>1</sup>.
-- `keyAsBuffer` _(boolean, default: `true`)_: Whether to return the key of each entry as a Buffer or string. Converting from a Buffer to a string incurs a cost so if you need a string (and the `key` can legitimately become a UTF8 string) then you should fetch it as one.
-- `valueAsBuffer` _(boolean, default: `true`)_: Whether to return the value of each entry as a Buffer or string.
-- `fillCache` (boolean, default: `false`): whether LevelDB's LRU-cache should be filled with data read.
-
-<sup>1</sup> `leveldown` returns an empty string rather than `undefined` at the moment.
-
-### `db.clear([options, ]callback)`
-
-Delete all entries or a range. Not guaranteed to be atomic. Accepts the following range options (with the same rules as on iterators):
-
-- `gt` (greater than), `gte` (greater than or equal) define the lower bound of the range to be deleted. Only entries where the key is greater than (or equal to) this option will be included in the range. When `reverse=true` the order will be reversed, but the entries deleted will be the same.
-- `lt` (less than), `lte` (less than or equal) define the higher bound of the range to be deleted. Only entries where the key is less than (or equal to) this option will be included in the range. When `reverse=true` the order will be reversed, but the entries deleted will be the same.
-- `reverse` _(boolean, default: `false`)_: delete entries in reverse order. Only effective in combination with `limit`, to remove the last N entries.
-- `limit` _(number, default: `-1`)_: limit the number of entries to be deleted. This number represents a _maximum_ number of entries and may not be reached if you get to the end of the range first. A value of `-1` means there is no limit. When `reverse=true` the entries with the highest keys will be deleted instead of the lowest keys.
-
-If no options are provided, all entries will be deleted. The `callback` function will be called with no arguments if the operation was successful or with an `Error` if it failed for any reason.
+This method is an additional method that is not part of the [`abstract-level`](https://github.com/Level/abstract-level) interface.
 
 ### `chainedBatch`
 
-#### `chainedBatch.put(key, value)`
+#### `chainedBatch.put(key, value[, options])`
 
-Queue a `put` operation on this batch. This may throw if `key` or `value` is invalid, following the same rules as the [array form of `db.batch()`](#dbbatchoperations-options-callback-array-form).
+Queue a `put` operation on this batch, not committed until `write()` is called. This will throw a [`LEVEL_INVALID_KEY`](https://github.com/Level/abstract-level#errors) or [`LEVEL_INVALID_VALUE`](https://github.com/Level/abstract-level#errors) error if `key` or `value` is invalid. The optional `options` object may contain:
 
-#### `chainedBatch.del(key)`
+- `keyEncoding`: custom key encoding for this operation, used to encode the `key`.
+- `valueEncoding`: custom value encoding for this operation, used to encode the `value`.
+- `sublevel` (sublevel instance): act as though the `put` operation is performed on the given sublevel, to similar effect as `sublevel.batch().put(key, value)`. This allows atomically committing data to multiple sublevels. The `key` will be prefixed with the `prefix` of the sublevel, and the `key` and `value` will be encoded by the sublevel (using the default encodings of the sublevel unless `keyEncoding` and / or `valueEncoding` are provided).
 
-Queue a `del` operation on this batch. This may throw if `key` is invalid.
+#### `chainedBatch.del(key[, options])`
+
+Queue a `del` operation on this batch, not committed until `write()` is called. This will throw a [`LEVEL_INVALID_KEY`](https://github.com/Level/abstract-level#errors) error if `key` is invalid. The optional `options` object may contain:
+
+- `keyEncoding`: custom key encoding for this operation, used to encode the `key`.
+- `sublevel` (sublevel instance): act as though the `del` operation is performed on the given sublevel, to similar effect as `sublevel.batch().del(key)`. This allows atomically committing data to multiple sublevels. The `key` will be prefixed with the `prefix` of the sublevel, and the `key` will be encoded by the sublevel (using the default key encoding of the sublevel unless `keyEncoding` is provided).
 
 #### `chainedBatch.clear()`
 
 Clear all queued operations on this batch.
 
-#### `chainedBatch.write([options, ]callback)`
+#### `chainedBatch.write([options][, callback])`
 
 Commit the queued operations for this batch. All operations will be written atomically, that is, they will either all succeed or fail with no partial commits.
 
-The optional `options` argument may contain:
+The optional `options` object may contain:
 
-- `sync` (boolean, default: `false`). See [`db.put()`](#dbputkey-value-options-callback) for details about this option.
+- `sync` (boolean, default: `false`): same as described for [`db.put()`](#dbputkey-value-options-callback).
 
-The `callback` function will be called with no arguments if the batch is successful or with an `Error` if the batch failed for any reason. After `write` has been called, no further operations are allowed.
+Note that `write()` does not take encoding options. Those can only be set on `put()` and `del()` because `classic-level` synchronously forwards such calls to LevelDB and thus need keys and values to be encoded at that point.
+
+The `callback` function will be called with no arguments if the batch was successful or with an error if it failed. If no callback is provided, a promise is returned.
+
+After `write()` or `close()` has been called, no further operations are allowed.
+
+#### `chainedBatch.close([callback])`
+
+Free up underlying resources. This should be done even if the chained batch has zero queued operations. Automatically called by `write()` so normally not necessary to call, unless the intent is to discard a chained batch without committing it. The `callback` function will be called with no arguments. If no callback is provided, a promise is returned. Closing the batch is an idempotent operation, such that calling `close()` more than once is allowed and makes no difference.
+
+#### `chainedBatch.length`
+
+The number of queued operations on the current batch.
 
 #### `chainedBatch.db`
 
-A reference to the `db` that created this chained batch.
+A reference to the database that created this chained batch.
 
 ### `iterator`
 
-An iterator allows you to _iterate_ the entire store or a range. It operates on a snapshot of the store, created at the time `db.iterator()` was called. This means reads on the iterator are unaffected by simultaneous writes.
+An iterator allows one to lazily read a range of entries stored in the database. The entries will be sorted by keys in [lexicographic order](https://en.wikipedia.org/wiki/Lexicographic_order) (in other words: byte order) which in short means key `'a'` comes before `'b'` and key `'10'` comes before `'2'`.
 
-Iterators can be consumed with [`for await...of`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/for-await...of) or by manually calling `iterator.next()` in succession. In the latter mode, `iterator.end()` must always be called. In contrast, finishing, throwing or breaking from a `for await...of` loop automatically calls `iterator.end()`.
+An iterator reads from a snapshot of the database, created at the time `db.iterator()` was called. This means the iterator will not see the data of simultaneous write operations.
+
+Iterators can be consumed with [`for await...of`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/for-await...of) and `iterator.all()`, or by manually calling `iterator.next()` or `nextv()` in succession. In the latter case, `iterator.close()` must always be called. In contrast, finishing, throwing, breaking or returning from a `for await...of` loop automatically calls `iterator.close()`, as does `iterator.all()`.
 
 An iterator reaches its natural end in the following situations:
 
-- The end of the store has been reached
+- The end of the database has been reached
 - The end of the range has been reached
 - The last `iterator.seek()` was out of range.
 
-An iterator keeps track of when a `next()` is in progress and when an `end()` has been called so it doesn't allow concurrent `next()` calls, it does allow `end()` while a `next()` is in progress and it doesn't allow either `next()` or `end()` after `end()` has been called.
+An iterator keeps track of calls that are in progress. It doesn't allow concurrent `next()`, `nextv()` or `all()` calls (including a combination thereof) and will throw an error with code [`LEVEL_ITERATOR_BUSY`](https://github.com/Level/abstract-level#errors) if that happens:
+
+```js
+// Not awaited and no callback provided
+iterator.next()
+
+try {
+  // Which means next() is still in progress here
+  iterator.all()
+} catch (err) {
+  console.log(err.code) // 'LEVEL_ITERATOR_BUSY'
+}
+```
 
 #### `for await...of iterator`
 
-Yields arrays containing a `key` and `value`. The type of `key` and `value` depends on the options passed to `db.iterator()`.
+Yields entries, which are arrays containing a `key` and `value`. The type of `key` and `value` depends on the options passed to `db.iterator()`.
 
 ```js
 try {
@@ -344,85 +576,171 @@ try {
 
 #### `iterator.next([callback])`
 
-Advance the iterator and yield the entry at that key. If an error occurs, the `callback` function will be called with an `Error`. Otherwise, the `callback` receives `null`, a `key` and a `value`. The type of `key` and `value` depends on the options passed to `db.iterator()`. If the iterator has reached its natural end, both `key` and `value` will be `undefined`.
+Advance to the next entry and yield that entry. If an error occurs, the `callback` function will be called with an error. Otherwise, the `callback` receives `null`, a `key` and a `value`. The type of `key` and `value` depends on the options passed to `db.iterator()`. If the iterator has reached its natural end, both `key` and `value` will be `undefined`.
 
 If no callback is provided, a promise is returned for either an array (containing a `key` and `value`) or `undefined` if the iterator reached its natural end.
 
-**Note:** Always call `iterator.end()`, even if you received an error and even if the iterator reached its natural end.
+**Note:** `iterator.close()` must always be called once there's no intention to call `next()` or `nextv()` again. Even if such calls yielded an error and even if the iterator reached its natural end. Not closing the iterator will result in memory leaks and may also affect performance of other operations if many iterators are unclosed and each is holding a snapshot of the database.
 
-#### `iterator.seek(key)`
+#### `iterator.nextv(size[, options][, callback])`
 
-Seek the iterator to a given key or the closest key. Subsequent calls to `iterator.next()` will yield entries with keys equal to or larger than `target`, or equal to or smaller than `target` if the `reverse` option passed to `db.iterator()` was true. The same applies to implicit `iterator.next()` calls in a `for await...of` loop.
+Advance repeatedly and get at most `size` amount of entries in a single call. Can be faster than repeated `next()` calls. The `size` argument must be an integer and has a soft minimum of 1. There are no `options` currently.
+
+If an error occurs, the `callback` function will be called with an error. Otherwise, the `callback` receives `null` and an array of entries, where each entry is an array containing a key and value. The natural end of the iterator will be signaled by yielding an empty array. If no callback is provided, a promise is returned.
+
+```js
+const iterator = db.iterator()
+
+while (true) {
+  const entries = await iterator.nextv(100)
+
+  if (entries.length === 0) {
+    break
+  }
+
+  for (const [key, value] of entries) {
+    // ..
+  }
+}
+
+await iterator.close()
+```
+
+#### `iterator.all([options][, callback])`
+
+Advance repeatedly and get all (remaining) entries as an array, automatically closing the iterator. Assumes that those entries fit in memory. If that's not the case, instead use `next()`, `nextv()` or `for await...of`. There are no `options` currently. If an error occurs, the `callback` function will be called with an error. Otherwise, the `callback` receives `null` and an array of entries, where each entry is an array containing a key and value. If no callback is provided, a promise is returned.
+
+```js
+const entries = await db.iterator({ limit: 100 }).all()
+
+for (const [key, value] of entries) {
+  // ..
+}
+```
+
+#### `iterator.seek(target[, options])`
+
+Seek to the key closest to `target`. Subsequent calls to `iterator.next()`, `nextv()` or `all()` (including implicit calls in a `for await...of` loop) will yield entries with keys equal to or larger than `target`, or equal to or smaller than `target` if the `reverse` option passed to `db.iterator()` was true.
+
+The optional `options` object may contain:
+
+- `keyEncoding`: custom key encoding, used to encode the `target`. By default the `keyEncoding` option of the iterator is used or (if that wasn't set) the `keyEncoding` of the database.
 
 If range options like `gt` were passed to `db.iterator()` and `target` does not fall within that range, the iterator will reach its natural end.
 
-#### `iterator.end([callback])`
+#### `iterator.close([callback])`
 
-End iteration and free up underlying resources. The `callback` function will be called with no arguments on success or with an `Error` if ending failed for any reason.
+Free up underlying resources. The `callback` function will be called with no arguments. If no callback is provided, a promise is returned. Closing the iterator is an idempotent operation, such that calling `close()` more than once is allowed and makes no difference.
 
-If no callback is provided, a promise is returned.
+If a `next()` ,`nextv()` or `all()` call is in progress, closing will wait for that to finish. After `close()` has been called, further calls to `next()` ,`nextv()` or `all()` will yield an error with code [`LEVEL_ITERATOR_NOT_OPEN`](https://github.com/Level/abstract-level#errors).
 
 #### `iterator.db`
 
-A reference to the `db` that created this iterator.
+A reference to the database that created this iterator.
 
-### `leveldown.destroy(location, callback)`
+#### `iterator.db`
 
-Completely remove an existing LevelDB database directory. You can use this function in place of a full directory `rm` if you want to be sure to only remove LevelDB-related files. If the directory only contains LevelDB files, the directory itself will be removed as well. If there are additional, non-LevelDB files in the directory, those files, and the directory, will be left alone.
+A reference to the database that created this iterator.
 
-The callback will be called when the destroy operation is complete, with a possible `error` argument.
+#### `iterator.count`
 
-### `leveldown.repair(location, callback)`
+Read-only getter that indicates how many keys have been yielded so far (by any method) excluding calls that errored or yielded `undefined`.
 
-Attempt a restoration of a damaged LevelDB store. From the LevelDB documentation:
+#### `iterator.limit`
+
+Read-only getter that reflects the `limit` that was set in options. Greater than or equal to zero. Equals `Infinity` if no limit, which allows for easy math:
+
+```js
+const hasMore = iterator.count < iterator.limit
+const remaining = iterator.limit - iterator.count
+```
+
+### `keyIterator`
+
+A key iterator has the same interface as `iterator` except that its methods yield keys instead of entries. For the `keyIterator.next(callback)` method, this means that the `callback` will receive two arguments (an error and key) instead of three. Usage is otherwise the same.
+
+### `valueIterator`
+
+A value iterator has the same interface as `iterator` except that its methods yield values instead of entries. For the `valueIterator.next(callback)` method, this means that the `callback` will receive two arguments (an error and value) instead of three. Usage is otherwise the same.
+
+### `sublevel`
+
+A sublevel is an instance of the `AbstractSublevel` class (as found in [`abstract-level`](https://github.com/Level/abstract-level)) which extends `AbstractLevel` and thus has the same API as documented above, except for additional `classic-level` methods like `db.approximateSize()`. Sublevels have a few additional properties.
+
+#### `sublevel.prefix`
+
+Prefix of the sublevel. A read-only string property.
+
+```js
+const example = db.sublevel('example')
+const nested = example.sublevel('nested')
+
+console.log(example.prefix) // '!example!'
+console.log(nested.prefix) // '!example!!nested!'
+```
+
+#### `sublevel.db`
+
+Parent database. A read-only property.
+
+```js
+const example = db.sublevel('example')
+const nested = example.sublevel('nested')
+
+console.log(example.db === db) // true
+console.log(nested.db === db) // true
+```
+
+### `ClassicLevel.destroy(location[, callback])`
+
+Completely remove an existing LevelDB database directory. You can use this method in place of a full directory removal if you want to be sure to only remove LevelDB-related files. If the directory only contains LevelDB files, the directory itself will be removed as well. If there are additional, non-LevelDB files in the directory, those files and the directory will be left alone.
+
+The `callback` function will be called when the destroy operation is complete, with a possible error argument. If no callback is provided, a promise is returned. This method is an additional method that is not part of the [`abstract-level`](https://github.com/Level/abstract-level) interface.
+
+Before calling `destroy()`, close a database if it's using the same `location`:
+
+```js
+const db = new ClassicLevel('./db')
+await db.close()
+await ClassicLevel.destroy('./db')
+```
+
+### `ClassicLevel.repair(location[, callback])`
+
+Attempt a restoration of a damaged database. It can also be used to perform a compaction of the LevelDB log into table files. From LevelDB documentation:
 
 > If a DB cannot be opened, you may attempt to call this method to resurrect as much of the contents of the database as possible. Some data may be lost, so be careful when calling this function on a database that contains important information.
 
-You will find information on the _repair_ operation in the _LOG_ file inside the store directory.
+The `callback` function will be called when the repair operation is complete, with a possible error argument. If no callback is provided, a promise is returned. This method is an additional method that is not part of the [`abstract-level`](https://github.com/Level/abstract-level) interface.
 
-A `repair()` can also be used to perform a compaction of the LevelDB log into table files.
+You will find information on the repair operation in the `LOG` file inside the database directory.
 
-The callback will be called when the repair operation is complete, with a possible `error` argument.
+Before calling `repair()`, close a database if it's using the same `location`.
 
-## Safety
+## Development
 
-### Database State
+### Getting Started
 
-Currently `leveldown` does not track the state of the underlying LevelDB instance. This means that calling `open()` on an already open database may result in an error. Likewise, calling any other operation on a non-open database may result in an error.
+This repository uses git submodules. Clone it recursively:
 
-`levelup` currently tracks and manages state and will prevent out-of-state operations from being send to `leveldown`. If you use `leveldown` directly then you must track and manage state for yourself.
+```bash
+git clone --recurse-submodules https://github.com/Level/classic-level.git
+```
 
-## Snapshots
+Alternatively, initialize submodules inside the working tree:
 
-`leveldown` exposes a feature of LevelDB called [snapshots](https://github.com/google/leveldb/blob/master/doc/index.md#snapshots). This means that when you do e.g. `createReadStream` and `createWriteStream` at the same time, any data modified by the write stream will not affect data emitted from the read stream. In other words, a LevelDB Snapshot captures the latest state at the time the snapshot was created, enabling the snapshot to iterate or read the data without seeing any subsequent writes. Any read not performed on a snapshot will implicitly use the latest state.
+```bash
+cd classic-level
+git submodule update --init --recursive
+```
 
-## Getting Support
+### Contributing
 
-You're welcome to open an issue on the [GitHub repository](https://github.com/Level/leveldown) if you have a question.
-
-Past and no longer active support channels include the `##leveldb` IRC channel on Freenode and the [Node.js LevelDB](https://groups.google.com/forum/#!forum/node-levelup) Google Group.
-
-## Contributing
-
-[`Level/leveldown`](https://github.com/Level/leveldown) is an **OPEN Open Source Project**. This means that:
+[`Level/classic-level`](https://github.com/Level/classic-level) is an **OPEN Open Source Project**. This means that:
 
 > Individuals making significant and valuable contributions are given commit-access to the project to contribute as they see fit. This project is more like an open wiki than a standard guarded open source project.
 
 See the [Contribution Guide](https://github.com/Level/community/blob/master/CONTRIBUTING.md) for more details.
-
-### Git Submodules
-
-This project uses Git Submodules. This means that you should clone it recursively if you're planning on working on it:
-
-```bash
-$ git clone --recurse-submodules https://github.com/Level/leveldown.git
-```
-
-Alternatively, you can initialize submodules inside the cloned folder:
-
-```bash
-$ git submodule update --init --recursive
-```
 
 ### Publishing
 
