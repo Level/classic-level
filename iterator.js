@@ -13,6 +13,11 @@ const kHandleNextv = Symbol('handleNextv')
 const kCallback = Symbol('callback')
 const empty = []
 
+// Does not implement _all() because the default implementation
+// of abstract-level falls back to nextv(1000) and using all()
+// on more entries than that probably isn't a realistic use case,
+// so it'll typically just make one nextv(1000) call and there's
+// no performance gain in overriding _all().
 class Iterator extends AbstractIterator {
   constructor (db, context, options) {
     super(db, options)
