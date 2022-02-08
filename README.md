@@ -33,6 +33,7 @@
   - [`db.batch(operations[, options][, callback])`](#dbbatchoperations-options-callback)
   - [`db.batch()`](#dbbatch)
   - [`iterator = db.iterator([options])`](#iterator--dbiteratoroptions)
+    - [About high water](#about-high-water)
   - [`keyIterator = db.keys([options])`](#keyiterator--dbkeysoptions)
   - [`valueIterator = db.values([options])`](#valueiterator--dbvaluesoptions)
   - [`db.clear([options][, callback])`](#dbclearoptions-callback)
@@ -367,9 +368,39 @@ The `gte` and `lte` range options take precedence over `gt` and `lt` respectivel
 - `values` (boolean, default: `true`): whether to return the value of each entry. If set to `false`, the iterator will yield values that are `undefined`. Prefer to use `db.values()` instead.
 - `keyEncoding`: custom key encoding for this iterator, used to encode range options, to encode `seek()` targets and to decode keys.
 - `valueEncoding`: custom value encoding for this iterator, used to decode values.
-- `fillCache` (boolean, default: `false`): If set to `true`, LevelDB will fill its in-memory [LRU](http://en.wikipedia.org/wiki/Least_Recently_Used) cache with data that was read.
+- `fillCache` (boolean, default: `false`): if set to `true`, LevelDB will fill its in-memory [LRU](http://en.wikipedia.org/wiki/Least_Recently_Used) cache with data that was read.
+- `highWaterMarkBytes` (number, default: `16 * 1024`): limit the amount of data that the iterator will hold in memory. Explained below.
 
-> :pushpin: To instead consume data using Node.js streams, see [`level-read-stream`](https://github.com/Level/read-stream).
+#### About high water
+
+While [`iterator.nextv(size)`](#iteratornextvsize-options-callback) is reading entries from LevelDB into memory, it sums up the byte length of those entries. If and when that sum has exceeded `highWaterMarkBytes`, reading will stop. If `nextv(2)` would normally yield two entries but the first entry is too big, then only one entry will be yielded. More `nextv(size)` calls must then be made to get the remaining entries.
+
+If memory usage is less of a concern, increasing `highWaterMarkBytes` can increase the throughput of `nextv(size)`. It can also be set to `0` which means `nextv(size)` will never yield more than one entry, as `highWaterMarkBytes` will be exceeded on each call. It can not be set to `Infinity`. On key- and value iterators, it applies to the byte length of keys or values respectively, rather than the combined byte length of keys _and_ values.
+
+Optimal performance can be achieved by setting `highWaterMarkBytes` to at least `size` multiplied by the expected byte length of an entry, ensuring that `size` is always met. In other words, that `nextv(size)` will not stop reading before `size` amount of entries have been read into memory. If the iterator is wrapped in a [stream](https://github.com/Level/read-stream) then the `size` parameter is dictated by the stream's [`highWaterMark`](https://github.com/Level/read-stream#api) option. For example:
+
+```js
+const { EntryStream } = require('level-read-stream')
+
+// If an entry is 50 bytes on average
+const stream = new EntryStream(db, {
+  highWaterMark: 1000,
+  highWaterMarkBytes: 1000 * 50
+})
+```
+
+Side note: the "watermark" analogy makes more sense in Node.js streams because its internal `highWaterMark` can grow, indicating the highest that the "water" has been. In a `classic-level` iterator however, `highWaterMarkBytes` is fixed once set. Getting exceeded does not change it.
+
+The `highWaterMarkBytes` option also applies to an internal cache that `classic-level` employs for [`next()`](#iteratornextcallback) and [`for await...of`](#for-awaitof-iterator). When `next()` is called, that cache is populated with at most 1000 entries, or less than that if `highWaterMarkBytes` is exceeded by the sum of the byte length of entries that are waiting in the cache. To avoid reading too eagerly, the cache is not populated on the first `next()` call, or the first `next()` call after a `seek()`. Only on subsequent `next()` calls. This also applies to `for await...of`. In the following example the cache is never populated and for that reason, the `highWaterMarkBytes` option doesn't come into play.
+
+```js
+const lexint = require('lexicographic-integer-encoding')('hex')
+const it = db.iterator({ keyEncoding: lexint })
+
+for await (const [key, value] of it) {
+  it.seek(key + 2)
+}
+```
 
 ### `keyIterator = db.keys([options])`
 

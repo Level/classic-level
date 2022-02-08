@@ -64,7 +64,7 @@ test('setUp db', function (t) {
 
 test('iterate over a large iterator with a large watermark', function (t) {
   const iterator = db.iterator({
-    highWaterMark: 10000000
+    highWaterMarkBytes: 10000000
   })
   const read = function () {
     iterator.next(function (err, key, value) {

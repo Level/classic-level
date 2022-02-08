@@ -823,14 +823,14 @@ struct Iterator final : public BaseIterator {
             const bool fillCache,
             const bool keyAsBuffer,
             const bool valueAsBuffer,
-            const uint32_t highWaterMark)
+            const uint32_t highWaterMarkBytes)
     : BaseIterator(database, reverse, lt, lte, gt, gte, limit, fillCache),
       id_(id),
       keys_(keys),
       values_(values),
       keyAsBuffer_(keyAsBuffer),
       valueAsBuffer_(valueAsBuffer),
-      highWaterMark_(highWaterMark),
+      highWaterMarkBytes_(highWaterMarkBytes),
       first_(true),
       nexting_(false),
       isClosing_(false),
@@ -877,7 +877,7 @@ struct Iterator final : public BaseIterator {
         bytesRead += v.size();
       }
 
-      if (bytesRead > highWaterMark_ || cache_.size() >= size) {
+      if (bytesRead > highWaterMarkBytes_ || cache_.size() >= size) {
         return true;
       }
     }
@@ -890,7 +890,7 @@ struct Iterator final : public BaseIterator {
   const bool values_;
   const bool keyAsBuffer_;
   const bool valueAsBuffer_;
-  const uint32_t highWaterMark_;
+  const uint32_t highWaterMarkBytes_;
   bool first_;
   bool nexting_;
   bool isClosing_;
@@ -1624,8 +1624,7 @@ NAPI_METHOD(iterator_init) {
   const bool keyAsBuffer = EncodingIsBuffer(env, options, "keyEncoding");
   const bool valueAsBuffer = EncodingIsBuffer(env, options, "valueEncoding");
   const int limit = Int32Property(env, options, "limit", -1);
-  const uint32_t highWaterMark = Uint32Property(env, options, "highWaterMark",
-                                          16 * 1024);
+  const uint32_t highWaterMarkBytes = Uint32Property(env, options, "highWaterMarkBytes", 16 * 1024);
 
   std::string* lt = RangeOption(env, options, "lt");
   std::string* lte = RangeOption(env, options, "lte");
@@ -1635,7 +1634,7 @@ NAPI_METHOD(iterator_init) {
   const uint32_t id = database->currentIteratorId_++;
   Iterator* iterator = new Iterator(database, id, reverse, keys,
                                     values, limit, lt, lte, gt, gte, fillCache,
-                                    keyAsBuffer, valueAsBuffer, highWaterMark);
+                                    keyAsBuffer, valueAsBuffer, highWaterMarkBytes);
   napi_value result;
 
   NAPI_STATUS_THROWS(napi_create_external(env, iterator,
