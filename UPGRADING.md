@@ -2,90 +2,122 @@
 
 This document describes breaking changes and how to upgrade. For a complete list of changes including minor and patch releases, please refer to the [changelog](CHANGELOG.md).
 
-## 6.0.0
+## 1.0.0
 
-Legacy range options have been removed ([Level/community#86](https://github.com/Level/community/issues/86)). If you previously did:
+**Introducing `classic-level`: a fork of [`leveldown`](https://github.com/Level/leveldown) that implements the [`abstract-level`](https://github.com/Level/abstract-level) interface instead of [`abstract-leveldown`](https://github.com/Level/abstract-leveldown). It thus has the same API as `level` and `levelup` including encodings, promises and events. In addition, you can now choose to use Uint8Array instead of Buffer. Sublevels are builtin.**
+
+We've put together several upgrade guides for different modules. See the [FAQ](https://github.com/Level/community#faq) to find the best upgrade guide for you. This one describes how to replace `leveldown` with `classic-level`. There will be a separate guide for upgrading `level`.
+
+Support of Node.js 10 has been dropped.
+
+### What is not covered here
+
+If you are using any of the following, please also read the upgrade guide of [`abstract-level@1`](https://github.com/Level/abstract-level/blob/main/UPGRADING.md#100) which goes into more detail about these:
+
+- Specific error messages (replaced with error codes)
+- The `db.iterator().end()` method (renamed to `close()`, with `end()` as an alias)
+- Zero-length keys and range options (now valid)
+- The `db.supports.bufferKeys` property.
+
+### Changes to initialization
+
+We started using classes, which means using `new` is now required. If you previously did:
 
 ```js
-db.iterator({ start: 'a', end: 'z' })
+const leveldown = require('leveldown')
+const db = leveldown('./db')
 ```
 
-An error would now be thrown and you must instead do:
+You must now do:
 
 ```js
-db.iterator({ gte: 'a', lte: 'z' })
+const { ClassicLevel } = require('classic-level')
+const db = new ClassicLevel('./db')
 ```
 
-This release also drops support of Node.js 6 and 8 ([Level/community#98](https://github.com/Level/community/issues/98)).
-
-## 5.0.0
-
-This is a rewrite to N-API - which is a huge milestone, achieved without an impact on write performance - and an upgrade to `abstract-leveldown` v6, which solves long-standing issues around serialization and type support.
-
-### N-API rewrite
-
-N-API is the latest interface for native addons in Node.js. Main benefit is that `leveldown` became independent of the V8 version, which means it will be compatible with future versions of Node.js. As long as the native code doesn't change, it doesn't need to be recompiled as new versions of Node.js are released. This helps greatly with both maintenance and when delivering code to consumers.
-
-Because N-API has an experimental status in node 6 and early 8.x releases, support of node 6 has been dropped and the minimum node version for `leveldown` is now 8.6.0. Conversely, for node >= 12, `leveldown@5` is the minimum version.
-
-### Prebuilt binaries are now shipped in npm package
-
-Previously, they were downloaded from GitHub by an npm `postinstall` script. In addition, `leveldown` now includes prebuilt binaries for Linux ARMv7, Linux ARM64, Android ARMv7 and Android ARM64. The latter target node core (rather than the formerly needed [`nodejs-mobile`](https://github.com/janeasystems/nodejs-mobile) fork).
-
-### Range options are now serialized
-
-Previously, range options like `lt` were passed through as-is by `abstract-leveldown`, unlike keys. For `leveldown` it means that range option types other than a string or Buffer will be stringified.
-
-### The rules for range options have been relaxed
-
-Because `null`, `undefined`, zero-length strings and zero-length buffers are significant types in encodings like `bytewise` and `charwise`, they became valid as range options in `abstract-leveldown`. This means `db.iterator({ gt: undefined })` is not the same as `db.iterator({})`.
-
-In the case of `leveldown`, when used by itself, the aforementioned change means that `db.iterator({ gt: undefined })` is now effectively the same as `db.iterator({ gt: 'undefined' })`, making it explicit that `leveldown` only supports strings and buffers.
-
-### Seeking became part of official `abstract-leveldown` API
-
-As a result of this, the `target` argument in `iterator.seek(target)` is now serialized. Meaning any type other than a string or Buffer will be stringified. Like before, if the result is a zero-length string or Buffer, an error will be thrown.
-
-### Nullish values are rejected
-
-In addition to rejecting `null` and `undefined` as _keys_, `abstract-leveldown` now also rejects these types as _values_, due to preexisting significance in streams and iterators.
-
-### Zero-length array keys are rejected
-
-Though this was already the case, `abstract-leveldown` has replaced the behavior with an explicit `Array.isArray()` check and a new error message.
-
-### The `sync` option of `chainedBatch` has moved
-
-The `sync` option has moved to `chainedBatch.write(options)`. Previously, `sync` was half-documented and half-implemented.
-
-### Various segmentation faults have been fixed
-
-It is now safe to call `db.close()` before `db.put()` completes, to call `db.iterator()` on a non-open db and to call `db.close()` having created many iterators regardless of their state (idle, nexting, ending or ended). To achieve this, `leveldown` waits for pending operations before closing:
+Because `abstract-level` does not require calling `db.open()` before other methods (a feature known as deferred open) it is now preferred to pass options to the constructor. For example:
 
 ```js
-db.put('key', 'value', function (err) {
-  console.log('this happens first')
-})
-
-db.close(function (err) {
-  console.log('this happens second')
+const db = new ClassicLevel('./db', {
+  createIfMissing: false,
+  compression: false
 })
 ```
 
-A future release will do the same for other operations like `get` and `batch`.
+If `db.open(options)` is called manually those options will be shallowly merged with options from the constructor:
 
-## 4.0.0
+```js
+// Results in { createIfMissing: false, compression: true }
+await db.open({ compression: true })
+```
 
-Dropped support for node 4. No other breaking changes.
+This means that if you were using this `db.open(options)` pattern, it works as before, except if you were _also_ wrapping `leveldown` with `levelup` _and_ passing options to the `levelup` constructor. Because `levelup` would overwrite rather than merge options.
 
-## 3.0.1
+### There is only encodings
 
-If you're using node v10 you'll need at least `leveldown@2.0.1` to successfully compile. In addition, if you want prebuilt binaries you'll need at least `leveldown@3.0.1`.
+The `asBuffer`, `valueAsBuffer` and `keyAsBuffer` options have been replaced with encoding options. The default encoding is `'utf8'` which means operations return strings rather than Buffers by default. If you previously did:
 
-## 3.0.0
+```js
+db.get('example', { asBuffer: false }, callback)
+db.get('example', callback)
+```
 
-#### `.batch(array)` enforces objects
+You must now do:
 
-This major release contains an upgrade to `abstract-leveldown` with a [breaking change](https://github.com/Level/abstract-leveldown/commit/a2621ad70571f6ade9d2be42632ece042e068805) for the array version of `.batch()`. This change ensures all elements in the batch array are objects.
+```js
+db.get('example', callback)
+db.get('example', { valueEncoding: 'buffer' }, callback)
+```
 
-If you previously passed arrays to `.batch()` that contained `undefined` or `null`, they would be silently ignored. Now this will produce an error.
+Or using promises (new):
+
+```js
+const str = await db.get('example')
+const buf = await db.get('example', { valueEncoding: 'buffer' })
+```
+
+Or using Uint8Array (new):
+
+```js
+const arr = await db.get('example', { valueEncoding: 'view' })
+```
+
+### Unwrapping the onion
+
+If you were wrapping `leveldown` with `levelup`, `encoding-down` and / or `subleveldown`, remove those modules. If you previously did:
+
+```js
+const leveldown = require('leveldown')
+const levelup = require('levelup')
+const enc = require('encoding-down')
+const subleveldown = require('subleveldown')
+
+const db = levelup(enc(leveldown('./db')))
+const sublevel = subleveldown(db, 'foo')
+```
+
+You must now do:
+
+```js
+const { ClassicLevel } = require('classic-level')
+const db = new ClassicLevel('./db')
+const sublevel = db.sublevel('foo')
+```
+
+### Changes to iterators
+
+- The `highWaterMark` option has been renamed to `highWaterMarkBytes` to remove a conflict with streams. Please see the README for details on this (previously undocumented) option.
+- On iterators with `{ keys: false }` or `{ values: false }` options, the key or value is now `undefined` rather than an empty string (this was only the case in `leveldown`).
+- The `iterator.cache` and `iterator.finished` properties are no longer accessible. If you were using these then you'll want to checkout the new `nextv()` method in the README.
+
+### Sugar on additional methods
+
+The additional methods `db.approximateSize()` and `db.compactRange()` now support the same patterns as other methods:
+
+- Support of encoding options
+- Deferred open (no need to call `db.open()` before these methods)
+- Returning a promise if no callback is provided.
+
+---
+
+_For earlier releases, before `classic-level` was forked from `leveldown` (v6.1.0), please see [the upgrade guide of `leveldown`](https://github.com/Level/leveldown/blob/HEAD/UPGRADING.md)._
