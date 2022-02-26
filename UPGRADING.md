@@ -107,7 +107,6 @@ const sublevel = db.sublevel('foo')
 ### Changes to iterators
 
 - The `highWaterMark` option has been renamed to `highWaterMarkBytes` to remove a conflict with streams. Please see the README for details on this (previously undocumented) option.
-- The error message `cannot call iterator() before open()` has been replaced with a [`LEVEL_DATABASE_NOT_OPEN`](https://github.com/Level/abstract-level#errors) error code.
 - On iterators with `{ keys: false }` or `{ values: false }` options, the key or value is now `undefined` rather than an empty string (this was only the case in `leveldown`).
 - The `iterator.cache` and `iterator.finished` properties are no longer accessible. If you were using these then you'll want to checkout the new `nextv()` method in the README.
 
