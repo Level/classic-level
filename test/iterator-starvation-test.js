@@ -26,8 +26,8 @@ test('iterator does not starve event loop', function (t) {
     db.batch(sourceData.slice(), function (err) {
       t.ifError(err, 'no batch error')
 
-      // Set a high highWaterMark to fill up the cache entirely
-      const it = db.iterator({ highWaterMark: Math.pow(1024, 3) })
+      // Set a high highWaterMarkBytes to fill up the cache entirely
+      const it = db.iterator({ highWaterMarkBytes: Math.pow(1024, 3) })
 
       let breaths = 0
       let entries = 0
@@ -77,7 +77,7 @@ test('iterator with seeks does not starve event loop', function (t) {
     db.batch(sourceData.slice(), function (err) {
       t.ifError(err, 'no batch error')
 
-      const it = db.iterator({ highWaterMark: Math.pow(1024, 3), limit: sourceData.length })
+      const it = db.iterator({ highWaterMarkBytes: Math.pow(1024, 3), limit: sourceData.length })
 
       let breaths = 0
       let entries = 0

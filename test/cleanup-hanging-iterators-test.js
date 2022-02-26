@@ -32,10 +32,10 @@ makeTest('test likely-closed iterator', function (db, t, done) {
 })
 
 makeTest('test non-closed iterator', function (db, t, done) {
-  // Same as the test above but with a highWaterMark of 0 so that we don't
+  // Same as the test above but with a highWaterMarkBytes of 0 so that we don't
   // preemptively fetch all records, to ensure that the iterator is still
   // active when we (attempt to) close the database.
-  const it = db.iterator({ highWaterMark: 0 })
+  const it = db.iterator({ highWaterMarkBytes: 0 })
 
   it.next(function (err, key, value) {
     t.ifError(err, 'no error from next()')
@@ -57,10 +57,10 @@ makeTest('test multiple likely-closed iterators', function (db, t, done) {
 })
 
 makeTest('test multiple non-closed iterators', function (db, t, done) {
-  // Same as the test above but with a highWaterMark of 0.
+  // Same as the test above but with a highWaterMarkBytes of 0.
   for (let i = 0; i < repeats; i++) {
-    db.iterator({ highWaterMark: 0 })
-    db.iterator({ highWaterMark: 0 }).next(function () {})
+    db.iterator({ highWaterMarkBytes: 0 })
+    db.iterator({ highWaterMarkBytes: 0 }).next(function () {})
   }
 
   setTimeout(done, Math.floor(Math.random() * 50))
@@ -70,8 +70,8 @@ global.gc && makeTest('test multiple non-closed iterators with forced gc', funct
   // Same as the test above but with forced GC, to test that the lifespan of an
   // iterator is tied to *both* its JS object and whether the iterator was closed.
   for (let i = 0; i < repeats; i++) {
-    db.iterator({ highWaterMark: 0 })
-    db.iterator({ highWaterMark: 0 }).next(function () {})
+    db.iterator({ highWaterMarkBytes: 0 })
+    db.iterator({ highWaterMarkBytes: 0 }).next(function () {})
   }
 
   setTimeout(function () {
@@ -95,7 +95,7 @@ makeTest('test closing iterators', function (db, t, done) {
 
 makeTest('test recursive next', function (db, t, done) {
   // Test that we're able to close when user keeps scheduling work
-  const it = db.iterator({ highWaterMark: 0 })
+  const it = db.iterator({ highWaterMarkBytes: 0 })
 
   it.next(function loop (err, key) {
     if (err && err.code !== 'LEVEL_ITERATOR_NOT_OPEN') throw err
@@ -107,7 +107,7 @@ makeTest('test recursive next', function (db, t, done) {
 
 makeTest('test recursive next (random)', function (db, t, done) {
   // Same as the test above but closing at a random time
-  const it = db.iterator({ highWaterMark: 0 })
+  const it = db.iterator({ highWaterMarkBytes: 0 })
 
   it.next(function loop (err, key) {
     if (err && err.code !== 'LEVEL_ITERATOR_NOT_OPEN') throw err

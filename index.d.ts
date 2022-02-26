@@ -252,6 +252,11 @@ export interface AdditionalIteratorOptions {
    * @defaultValue `false`
    */
   fillCache?: boolean | undefined
+
+  /**
+   * Limit the amount of data that the iterator will hold in memory.
+   */
+  highWaterMarkBytes?: number | undefined
 }
 
 /**

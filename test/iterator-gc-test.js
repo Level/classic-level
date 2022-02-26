@@ -26,8 +26,8 @@ test('db without ref does not get GCed while iterating', function (t) {
     db.batch(sourceData.slice(), function (err) {
       t.ifError(err, 'no batch error')
 
-      // Set highWaterMark to 0 so that we don't preemptively fetch.
-      const it = db.iterator({ highWaterMark: 0 })
+      // Set highWaterMarkBytes to 0 so that we don't preemptively fetch.
+      const it = db.iterator({ highWaterMarkBytes: 0 })
 
       // Remove reference
       db = null
@@ -39,7 +39,7 @@ test('db without ref does not get GCed while iterating', function (t) {
         iterate(it)
       } else {
         // But a timeout usually also allows GC to kick in. If not, the time
-        // between iterator ticks might. That's when "highWaterMark: 0" helps.
+        // between iterator ticks might. That's when "highWaterMarkBytes: 0" helps.
         setTimeout(iterate.bind(null, it), 1000)
       }
     })
