@@ -143,7 +143,7 @@ const xyz = db.sublevel<string, any>('xyz', { valueEncoding: 'json' })
 
 ## Supported Platforms
 
-We aim to support _at least_ Active LTS and Current Node.js releases, Electron 5.0.0, as well as any future Node.js and Electron releases thanks to [N-API](https://nodejs.org/api/n-api.html).
+We aim to support _at least_ Active LTS and Current Node.js releases, Electron 5.0.0, as well as any future Node.js and Electron releases thanks to [Node-API](https://nodejs.org/api/n-api.html).
 
 The `classic-level` npm package ships with prebuilt binaries for popular 64-bit platforms as well as ARM, M1, Android, Alpine (musl), Windows 32-bit, Linux flavors with an old glibc (Debian 8, Ubuntu 14.04, RHEL 7, CentOS 7) and is known to work on:
 
@@ -655,10 +655,6 @@ If range options like `gt` were passed to `db.iterator()` and `target` does not 
 Free up underlying resources. The `callback` function will be called with no arguments. If no callback is provided, a promise is returned. Closing the iterator is an idempotent operation, such that calling `close()` more than once is allowed and makes no difference.
 
 If a `next()` ,`nextv()` or `all()` call is in progress, closing will wait for that to finish. After `close()` has been called, further calls to `next()` ,`nextv()` or `all()` will yield an error with code [`LEVEL_ITERATOR_NOT_OPEN`](https://github.com/Level/abstract-level#errors).
-
-#### `iterator.db`
-
-A reference to the database that created this iterator.
 
 #### `iterator.db`
 
