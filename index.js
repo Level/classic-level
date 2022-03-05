@@ -3,6 +3,7 @@
 const { AbstractLevel } = require('abstract-level')
 const ModuleError = require('module-error')
 const { fromCallback } = require('catering')
+const fs = require('fs')
 const binding = require('./binding')
 const { ChainedBatch } = require('./chained-batch')
 const { Iterator } = require('./iterator')
@@ -47,7 +48,14 @@ class ClassicLevel extends AbstractLevel {
   }
 
   _open (options, callback) {
-    binding.db_open(this[kContext], this[kLocation], options, callback)
+    if (options.createIfMissing) {
+      fs.mkdir(this[kLocation], { recursive: true }, (err) => {
+        if (err) return callback(err)
+        binding.db_open(this[kContext], this[kLocation], options, callback)
+      })
+    } else {
+      binding.db_open(this[kContext], this[kLocation], options, callback)
+    }
   }
 
   _close (callback) {
