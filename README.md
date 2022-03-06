@@ -173,7 +173,7 @@ An `abstract-level` and thus `classic-level` database is at its core a [key-valu
 
 ### `db = new ClassicLevel(location[, options])`
 
-Create a database or open an existing database. The `location` argument must be a directory path (relative or absolute) where LevelDB will store its files. If the directory does not yet exist it will be created recursively. The optional `options` object may contain:
+Create a database or open an existing database. The `location` argument must be a directory path (relative or absolute) where LevelDB will store its files. If the directory does not yet exist (and `options.createIfMissing` is true) it will be created recursively. The optional `options` object may contain:
 
 - `keyEncoding` (string or object, default `'utf8'`): encoding to use for keys
 - `valueEncoding` (string or object, default `'utf8'`): encoding to use for values.
