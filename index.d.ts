@@ -9,6 +9,7 @@ import {
   AbstractBatchOperation,
   AbstractBatchOptions,
   AbstractChainedBatch,
+  AbstractChainedBatchWriteOptions,
   AbstractIteratorOptions,
   AbstractIterator,
   AbstractKeyIterator,
@@ -70,20 +71,20 @@ declare class ClassicLevel<KDefault = string, VDefault = string>
   del<K = KDefault> (key: K, options: DelOptions<K>): Promise<void>
   del<K = KDefault> (key: K, options: DelOptions<K>, callback: NodeCallback<void>): void
 
-  batch (operations: Array<AbstractBatchOperation<typeof this, KDefault, VDefault>>): Promise<void>
-  batch (operations: Array<AbstractBatchOperation<typeof this, KDefault, VDefault>>, callback: NodeCallback<void>): void
-  batch<K = KDefault, V = VDefault> (operations: Array<AbstractBatchOperation<typeof this, K, V>>, options: BatchOptions<K, V>): Promise<void>
-  batch<K = KDefault, V = VDefault> (operations: Array<AbstractBatchOperation<typeof this, K, V>>, options: BatchOptions<K, V>, callback: NodeCallback<void>): void
+  batch (operations: Array<BatchOperation<typeof this, KDefault, VDefault>>): Promise<void>
+  batch (operations: Array<BatchOperation<typeof this, KDefault, VDefault>>, callback: NodeCallback<void>): void
+  batch<K = KDefault, V = VDefault> (operations: Array<BatchOperation<typeof this, K, V>>, options: BatchOptions<K, V>): Promise<void>
+  batch<K = KDefault, V = VDefault> (operations: Array<BatchOperation<typeof this, K, V>>, options: BatchOptions<K, V>, callback: NodeCallback<void>): void
   batch (): ChainedBatch<typeof this, KDefault, VDefault>
 
-  iterator (): AbstractIterator<typeof this, KDefault, VDefault>
-  iterator<K = KDefault, V = VDefault> (options: AbstractIteratorOptions<K, V> & AdditionalIteratorOptions): AbstractIterator<typeof this, K, V>
+  iterator (): Iterator<typeof this, KDefault, VDefault>
+  iterator<K = KDefault, V = VDefault> (options: IteratorOptions<K, V>): Iterator<typeof this, K, V>
 
-  keys (): AbstractKeyIterator<typeof this, KDefault>
-  keys<K = KDefault> (options: AbstractKeyIteratorOptions<K> & AdditionalIteratorOptions): AbstractKeyIterator<typeof this, K>
+  keys (): KeyIterator<typeof this, KDefault>
+  keys<K = KDefault> (options: KeyIteratorOptions<K>): KeyIterator<typeof this, K>
 
-  values (): AbstractValueIterator<typeof this, KDefault, VDefault>
-  values<K = KDefault, V = VDefault> (options: AbstractValueIteratorOptions<K, V> & AdditionalIteratorOptions): AbstractValueIterator<typeof this, K, V>
+  values (): ValueIterator<typeof this, KDefault, VDefault>
+  values<K = KDefault, V = VDefault> (options: ValueIteratorOptions<K, V>): ValueIterator<typeof this, K, V>
 
   /**
    * Get the approximate number of bytes of file system space used by the range
@@ -297,7 +298,7 @@ export interface BatchOptions<K, V> extends AbstractBatchOptions<K, V>, WriteOpt
 /**
  * Options for the {@link ChainedBatch.write} method.
  */
-export interface ChainedBatchWriteOptions extends WriteOptions {}
+export interface ChainedBatchWriteOptions extends AbstractChainedBatchWriteOptions, WriteOptions {}
 
 export class ChainedBatch<TDatabase, KDefault, VDefault> extends AbstractChainedBatch<TDatabase, KDefault, VDefault> {
   write (): Promise<void>
@@ -316,3 +317,14 @@ export interface StartEndOptions<K> {
    */
   keyEncoding?: string | Transcoder.PartialEncoder<K> | undefined
 }
+
+// Export remaining types so that consumers don't have to guess whether they're extended
+export type BatchOperation<TDatabase, K, V> = AbstractBatchOperation<TDatabase, K, V>
+
+export type Iterator<TDatabase, K, V> = AbstractIterator<TDatabase, K, V>
+export type KeyIterator<TDatabase, K> = AbstractKeyIterator<TDatabase, K>
+export type ValueIterator<TDatabase, K, V> = AbstractValueIterator<TDatabase, K, V>
+
+export type IteratorOptions<K, V> = AbstractIteratorOptions<K, V> & AdditionalIteratorOptions
+export type KeyIteratorOptions<K> = AbstractKeyIteratorOptions<K> & AdditionalIteratorOptions
+export type ValueIteratorOptions<K, V> = AbstractValueIteratorOptions<K, V> & AdditionalIteratorOptions
