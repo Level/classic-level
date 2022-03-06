@@ -31,7 +31,7 @@
   - [`db.put(key, value[, options][, callback])`](#dbputkey-value-options-callback)
   - [`db.del(key[, options][, callback])`](#dbdelkey-options-callback)
   - [`db.batch(operations[, options][, callback])`](#dbbatchoperations-options-callback)
-  - [`db.batch()`](#dbbatch)
+  - [`chainedBatch = db.batch()`](#chainedbatch--dbbatch)
   - [`iterator = db.iterator([options])`](#iterator--dbiteratoroptions)
     - [About high water](#about-high-water)
   - [`keyIterator = db.keys([options])`](#keyiterator--dbkeysoptions)
@@ -57,7 +57,6 @@
     - [`iterator.seek(target[, options])`](#iteratorseektarget-options)
     - [`iterator.close([callback])`](#iteratorclosecallback)
     - [`iterator.db`](#iteratordb)
-    - [`iterator.db`](#iteratordb-1)
     - [`iterator.count`](#iteratorcount)
     - [`iterator.limit`](#iteratorlimit)
   - [`keyIterator`](#keyiterator)
@@ -349,9 +348,17 @@ await db.batch([
 
 The `callback` function will be called with no arguments if the batch was successful or with an error if it failed. If no callback is provided, a promise is returned.
 
-### `db.batch()`
+### `chainedBatch = db.batch()`
 
-Create a [`chainedBatch`](#chainedbatch) object, when `batch()` is called with zero arguments. A chained batch can be used to build and eventually commit an atomic batch of operations. Depending on how it's used, it is possible to obtain greater performance with this form of `batch()`.
+Create a [`chained batch`](#chainedbatch), when `batch()` is called with zero arguments. A chained batch can be used to build and eventually commit an atomic batch of operations. Depending on how it's used, it is possible to obtain greater performance with this form of `batch()`.
+
+```js
+await db.batch()
+  .del('bob')
+  .put('alice', 361)
+  .put('kim', 220)
+  .write()
+```
 
 ### `iterator = db.iterator([options])`
 
