@@ -444,6 +444,15 @@ struct BaseWorker {
       argv = CreateCodeError(env, "LEVEL_NOT_FOUND", errMsg_);
     } else if (status_.IsCorruption()) {
       argv = CreateCodeError(env, "LEVEL_CORRUPTION", errMsg_);
+    } else if (status_.IsIOError()) {
+      // TODO: add codes to abstract-level readme
+      if (strlen(errMsg_) > 15 && strncmp("IO error: lock ", errMsg_, 15) == 0) { // env_posix.cc
+        argv = CreateCodeError(env, "LEVEL_LOCKED", errMsg_);
+      } else if (strlen(errMsg_) > 19 && strncmp("IO error: LockFile ", errMsg_, 19) == 0) { // env_win.cc
+        argv = CreateCodeError(env, "LEVEL_LOCKED", errMsg_);
+      } else {
+        argv = CreateCodeError(env, "LEVEL_IO_ERROR", errMsg_);
+      }
     } else {
       argv = CreateError(env, errMsg_);
     }
