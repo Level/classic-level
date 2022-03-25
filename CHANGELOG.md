@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.0] - 2022-03-25
+
+### Added
+
+- Yield `LEVEL_LOCKED` error when lock is held ([#8](https://github.com/Level/classic-level/issues/8)) ([`aa975de`](https://github.com/Level/classic-level/commit/aa975de)) (Vincent Weevers)
+
+### Fixed
+
+- Fix `getMany()` memory leak ([#9](https://github.com/Level/classic-level/issues/9)) ([`00364c7`](https://github.com/Level/classic-level/commit/00364c7)) (Vincent Weevers).
+
 ## [1.1.0] - 2022-03-06
 
 ### Added
@@ -14,6 +24,8 @@
 ## [1.0.0] - 2022-03-04
 
 _:seedling: Initial release. If you are upgrading from `leveldown` please see [`UPGRADING.md`](UPGRADING.md)._
+
+[1.2.0]: https://github.com/Level/classic-level/releases/tag/v1.2.0
 
 [1.1.0]: https://github.com/Level/classic-level/releases/tag/v1.1.0
 
