@@ -194,7 +194,7 @@ Read-only getter that returns a string reflecting the current state of the datab
 
 ### `db.open([options][, callback])`
 
-Open the database. The `callback` function will be called with no arguments when successfully opened, or with a single error argument if opening failed. If no callback is provided, a promise is returned. Options passed to `open()` take precedence over options passed to the database constructor.
+Open the database. The `callback` function will be called with no arguments when successfully opened, or with a single error argument if opening failed. The database has an exclusive lock (on disk): if another process or instance has already opened the underlying LevelDB store at the given `location` then opening will fail with error code [`LEVEL_LOCKED`](https://github.com/Level/abstract-level#errors). If no callback is provided, a promise is returned. Options passed to `open()` take precedence over options passed to the database constructor.
 
 The optional `options` object may contain:
 
