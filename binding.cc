@@ -271,12 +271,12 @@ static std::string* RangeOption (napi_env env, napi_value opts, const char* name
 /**
  * Converts an array containing Buffer or string keys to a vector.
  */
-static std::vector<std::string>* KeyArray (napi_env env, napi_value arr) {
+static std::vector<std::string> KeyArray (napi_env env, napi_value arr) {
   uint32_t length;
-  std::vector<std::string>* result = new std::vector<std::string>();
+  std::vector<std::string> result;
 
   if (napi_get_array_length(env, arr, &length) == napi_ok) {
-    result->reserve(length);
+    result.reserve(length);
 
     for (uint32_t i = 0; i < length; i++) {
       napi_value element;
@@ -284,7 +284,7 @@ static std::vector<std::string>* KeyArray (napi_env env, napi_value arr) {
       if (napi_get_element(env, arr, i, &element) == napi_ok &&
           StringOrBufferLength(env, element) >= 0) {
         LD_STRING_OR_BUFFER_TO_COPY(env, element, to);
-        result->emplace_back(toCh_, toSz_);
+        result.emplace_back(toCh_, toSz_);
         delete [] toCh_;
       }
     }
@@ -318,36 +318,36 @@ enum Mode {
  * Helper struct for caching and converting a key-value pair to napi_values.
  */
 struct Entry {
-  Entry (const leveldb::Slice* key, const leveldb::Slice* value)
-    : key_(key->data(), key->size()),
-      value_(value->data(), value->size()) {}
+  Entry (const leveldb::Slice& key, const leveldb::Slice& value)
+    : key_(key.data(), key.size()),
+      value_(value.data(), value.size()) {}
 
-  void ConvertByMode (napi_env env, Mode mode, const bool keyAsBuffer, const bool valueAsBuffer, napi_value* result) {
+  void ConvertByMode (napi_env env, Mode mode, const bool keyAsBuffer, const bool valueAsBuffer, napi_value& result) {
     if (mode == Mode::entries) {
-      napi_create_array_with_length(env, 2, result);
+      napi_create_array_with_length(env, 2, &result);
 
       napi_value keyElement;
       napi_value valueElement;
 
-      Convert(env, &key_, keyAsBuffer, &keyElement);
-      Convert(env, &value_, valueAsBuffer, &valueElement);
+      Convert(env, key_, keyAsBuffer, keyElement);
+      Convert(env, value_, valueAsBuffer, valueElement);
 
-      napi_set_element(env, *result, 0, keyElement);
-      napi_set_element(env, *result, 1, valueElement);
+      napi_set_element(env, result, 0, keyElement);
+      napi_set_element(env, result, 1, valueElement);
     } else if (mode == Mode::keys) {
-      Convert(env, &key_, keyAsBuffer, result);
+      Convert(env, key_, keyAsBuffer, result);
     } else {
-      Convert(env, &value_, valueAsBuffer, result);
+      Convert(env, value_, valueAsBuffer, result);
     }
   }
 
-  static void Convert (napi_env env, const std::string* s, const bool asBuffer, napi_value* result) {
-    if (s == NULL) {
-      napi_get_undefined(env, result);
+  static void Convert (napi_env env, const std::optional<std::string>& s, const bool asBuffer, napi_value& result) {
+    if (!s) {
+      napi_get_undefined(env, &result);
     } else if (asBuffer) {
-      napi_create_buffer_copy(env, s->size(), s->data(), NULL, result);
+      napi_create_buffer_copy(env, s->size(), s->data(), nullptr, &result);
     } else {
-      napi_create_string_utf8(env, s->data(), s->size(), result);
+      napi_create_string_utf8(env, s->data(), s->size(), &result);
     }
   }
 
@@ -371,7 +371,7 @@ struct BaseWorker {
               Database* database,
               napi_value callback,
               const char* resourceName)
-    : database_(database), errMsg_(NULL) {
+    : database_(database) {
     NAPI_STATUS_THROWS_VOID(napi_create_reference(env, callback, 1, &callbackRef_));
     napi_value asyncResourceName;
     NAPI_STATUS_THROWS_VOID(napi_create_string_utf8(env, resourceName,
@@ -385,11 +385,10 @@ struct BaseWorker {
   }
 
   virtual ~BaseWorker () {
-    delete [] errMsg_;
   }
 
   static void Execute (napi_env env, void* data) {
-    BaseWorker* self = (BaseWorker*)data;
+    auto self = reinterpret_cast<BaseWorker*>(data);
 
     // Don't pass env to DoExecute() because use of Node-API
     // methods should generally be avoided in async work.
@@ -406,16 +405,13 @@ struct BaseWorker {
   }
 
   void SetErrorMessage(const char *msg) {
-    delete [] errMsg_;
-    size_t size = strlen(msg) + 1;
-    errMsg_ = new char[size];
-    memcpy(errMsg_, msg, size);
+    errMsg_ = std::string(msg);
   }
 
   virtual void DoExecute () = 0;
 
   static void Complete (napi_env env, napi_status status, void* data) {
-    BaseWorker* self = (BaseWorker*)data;
+    auto self = reinterpret_cast<BaseWorker*>(data);
 
     self->DoComplete(env);
     self->DoFinally(env);
@@ -441,20 +437,22 @@ struct BaseWorker {
   virtual void HandleErrorCallback (napi_env env, napi_value callback) {
     napi_value argv;
 
+    auto errMsg = errMsg_.c_str();
+
     if (status_.IsNotFound()) {
-      argv = CreateCodeError(env, "LEVEL_NOT_FOUND", errMsg_);
+      argv = CreateCodeError(env, "LEVEL_NOT_FOUND", errMsg);
     } else if (status_.IsCorruption()) {
-      argv = CreateCodeError(env, "LEVEL_CORRUPTION", errMsg_);
+      argv = CreateCodeError(env, "LEVEL_CORRUPTION", errMsg);
     } else if (status_.IsIOError()) {
-      if (strlen(errMsg_) > 15 && strncmp("IO error: lock ", errMsg_, 15) == 0) { // env_posix.cc
-        argv = CreateCodeError(env, "LEVEL_LOCKED", errMsg_);
-      } else if (strlen(errMsg_) > 19 && strncmp("IO error: LockFile ", errMsg_, 19) == 0) { // env_win.cc
-        argv = CreateCodeError(env, "LEVEL_LOCKED", errMsg_);
+      if (strlen(errMsg) > 15 && strncmp("IO error: lock ", errMsg, 15) == 0) { // env_posix.cc
+        argv = CreateCodeError(env, "LEVEL_LOCKED", errMsg);
+      } else if (strlen(errMsg) > 19 && strncmp("IO error: LockFile ", errMsg, 19) == 0) { // env_win.cc
+        argv = CreateCodeError(env, "LEVEL_LOCKED", errMsg);
       } else {
-        argv = CreateCodeError(env, "LEVEL_IO_ERROR", errMsg_);
+        argv = CreateCodeError(env, "LEVEL_IO_ERROR", errMsg);
       }
     } else {
-      argv = CreateError(env, errMsg_);
+      argv = CreateError(env, errMsg);
     }
 
     CallFunction(env, callback, 1, &argv);
@@ -477,41 +475,24 @@ private:
   napi_ref callbackRef_;
   napi_async_work asyncWork_;
   leveldb::Status status_;
-  char *errMsg_;
+  std::string errMsg_;
 };
 
 /**
  * Owns the LevelDB storage, cache, filter policy and iterators.
  */
 struct Database {
-  Database ()
-    : db_(NULL),
-      blockCache_(NULL),
-      filterPolicy_(leveldb::NewBloomFilterPolicy(10)),
-      currentIteratorId_(0),
-      pendingCloseWorker_(NULL),
-      ref_(NULL),
-      priorityWork_(0) {}
-
-  ~Database () {
-    if (db_ != NULL) {
-      delete db_;
-      db_ = NULL;
-    }
-  }
-
   leveldb::Status Open (const leveldb::Options& options,
                         const char* location) {
-    return leveldb::DB::Open(options, location, &db_);
+    leveldb::DB* db = nullptr;
+    auto ret = leveldb::DB::Open(options, location, &db);
+    db_.reset(db);
+    return ret;
   }
 
   void CloseDatabase () {
-    delete db_;
-    db_ = NULL;
-    if (blockCache_) {
-      delete blockCache_;
-      blockCache_ = NULL;
-    }
+    db_.reset();
+    blockCache_.reset();
   }
 
   leveldb::Status Put (const leveldb::WriteOptions& options,
@@ -580,9 +561,9 @@ struct Database {
   void DecrementPriorityWork (napi_env env) {
     napi_reference_unref(env, ref_, &priorityWork_);
 
-    if (priorityWork_ == 0 && pendingCloseWorker_ != NULL) {
+    if (priorityWork_ == 0 && pendingCloseWorker_ != nullptr) {
       pendingCloseWorker_->Queue(env);
-      pendingCloseWorker_ = NULL;
+      pendingCloseWorker_ = nullptr;
     }
   }
 
@@ -590,16 +571,16 @@ struct Database {
     return priorityWork_ > 0;
   }
 
-  leveldb::DB* db_;
-  leveldb::Cache* blockCache_;
-  const leveldb::FilterPolicy* filterPolicy_;
-  uint32_t currentIteratorId_;
-  BaseWorker *pendingCloseWorker_;
+  std::unique_ptr<leveldb::DB> db_;
+  std::unique_ptr<leveldb::Cache> blockCache_;
+  const leveldb::FilterPolicy* filterPolicy_ = leveldb::NewBloomFilterPolicy(10);
+  uint32_t currentIteratorId_ = 0;
+  BaseWorker *pendingCloseWorker_ = nullptr;
   std::map< uint32_t, Iterator * > iterators_;
-  napi_ref ref_;
+  napi_ref ref_ = nullptr;
 
 private:
-  uint32_t priorityWork_;
+  uint32_t priorityWork_ = 0;
 };
 
 /**
@@ -641,10 +622,9 @@ struct BaseIterator {
       gte_(gte),
       limit_(limit),
       count_(0) {
-    options_ = new leveldb::ReadOptions();
-    options_->fill_cache = fillCache;
-    options_->snapshot = database->NewSnapshot();
-    dbIterator_ = database_->NewIterator(options_);
+    options_.fill_cache = fillCache;
+    options_.snapshot = database->NewSnapshot();
+    dbIterator_.reset(database_->NewIterator(&options_));
   }
 
   virtual ~BaseIterator () {
@@ -654,8 +634,6 @@ struct BaseIterator {
     if (gt_ != NULL) delete gt_;
     if (lte_ != NULL) delete lte_;
     if (gte_ != NULL) delete gte_;
-
-    delete options_;
   }
 
   bool DidSeek () const {
@@ -730,9 +708,8 @@ struct BaseIterator {
   void Close () {
     if (!hasClosed_) {
       hasClosed_ = true;
-      delete dbIterator_;
-      dbIterator_ = NULL;
-      database_->ReleaseSnapshot(options_->snapshot);
+      dbIterator_.reset();
+      database_->ReleaseSnapshot(options_.snapshot);
     }
   }
 
@@ -803,7 +780,7 @@ struct BaseIterator {
   bool hasClosed_;
 
 private:
-  leveldb::Iterator* dbIterator_;
+  std::unique_ptr<leveldb::Iterator> dbIterator_;
   bool didSeek_;
   const bool reverse_;
   std::string* lt_;
@@ -812,7 +789,7 @@ private:
   std::string* gte_;
   const int limit_;
   int count_;
-  leveldb::ReadOptions* options_;
+  leveldb::ReadOptions options_;
 };
 
 /**
@@ -872,17 +849,17 @@ struct Iterator final : public BaseIterator {
       if (!Valid() || !Increment()) break;
 
       if (keys_ && values_) {
-        leveldb::Slice k = CurrentKey();
-        leveldb::Slice v = CurrentValue();
-        cache_.emplace_back(&k, &v);
+        const auto k = CurrentKey();
+        const auto v = CurrentValue();
+        cache_.emplace_back(k, v);
         bytesRead += k.size() + v.size();
       } else if (keys_) {
-        leveldb::Slice k = CurrentKey();
-        cache_.emplace_back(&k, &empty);
+        const auto k = CurrentKey();
+        cache_.emplace_back(k, empty);
         bytesRead += k.size();
       } else if (values_) {
-        leveldb::Slice v = CurrentValue();
-        cache_.emplace_back(&empty, &v);
+        const auto v = CurrentValue();
+        cache_.emplace_back(empty, v);
         bytesRead += v.size();
       }
 
@@ -987,7 +964,7 @@ struct OpenWorker final : public BaseWorker {
               const uint32_t maxFileSize)
     : BaseWorker(env, database, callback, "classic_level.db.open"),
       location_(location) {
-    options_.block_cache = database->blockCache_;
+    options_.block_cache = database->blockCache_.get();
     options_.filter_policy = database->filterPolicy_;
     options_.create_if_missing = createIfMissing;
     options_.error_if_exists = errorIfExists;
@@ -1032,7 +1009,7 @@ NAPI_METHOD(db_open) {
                                                  "blockRestartInterval", 16);
   const uint32_t maxFileSize = Uint32Property(env, options, "maxFileSize", 2 << 20);
 
-  database->blockCache_ = leveldb::NewLRUCache(cacheSize);
+  database->blockCache_.reset(leveldb::NewLRUCache(cacheSize));
 
   napi_value callback = argv[3];
   OpenWorker* worker = new OpenWorker(env, database, callback, location,
@@ -1170,7 +1147,7 @@ struct GetWorker final : public PriorityWorker {
   void HandleOKCallback (napi_env env, napi_value callback) override {
     napi_value argv[2];
     napi_get_null(env, &argv[0]);
-    Entry::Convert(env, &value_, asBuffer_, &argv[1]);
+    Entry::Convert(env, value_, asBuffer_, argv[1]);
     CallFunction(env, callback, 2, argv);
   }
 
@@ -1207,37 +1184,28 @@ NAPI_METHOD(db_get) {
 struct GetManyWorker final : public PriorityWorker {
   GetManyWorker (napi_env env,
                  Database* database,
-                 const std::vector<std::string>* keys,
+                 std::vector<std::string> keys,
                  napi_value callback,
                  const bool valueAsBuffer,
                  const bool fillCache)
     : PriorityWorker(env, database, callback, "classic_level.get.many"),
-      keys_(keys), valueAsBuffer_(valueAsBuffer) {
+      keys_(std::move(keys)), valueAsBuffer_(valueAsBuffer) {
       options_.fill_cache = fillCache;
       options_.snapshot = database->NewSnapshot();
     }
 
-  ~GetManyWorker() {
-    delete keys_;
-  }
-
   void DoExecute () override {
-    cache_.reserve(keys_->size());
+    cache_.reserve(keys_.size());
 
-    for (const std::string& key: *keys_) {
-      std::string* value = new std::string();
-      leveldb::Status status = database_->Get(options_, key, *value);
+    for (const auto& key: keys_) {
+      std::string value;
+      leveldb::Status status = database_->Get(options_, key, value);
 
       if (status.ok()) {
-        cache_.push_back(value);
+        cache_.push_back(std::move(value));
       } else if (status.IsNotFound()) {
-        delete value;
-        cache_.push_back(NULL);
+        cache_.push_back(nullptr);
       } else {
-        delete value;
-        for (const std::string* value: cache_) {
-          if (value != NULL) delete value;
-        }
         SetStatus(status);
         break;
       }
@@ -1252,11 +1220,9 @@ struct GetManyWorker final : public PriorityWorker {
     napi_create_array_with_length(env, size, &array);
 
     for (size_t idx = 0; idx < size; idx++) {
-      std::string* value = cache_[idx];
       napi_value element;
-      Entry::Convert(env, value, valueAsBuffer_, &element);
+      Entry::Convert(env, cache_[idx], valueAsBuffer_, element);
       napi_set_element(env, array, static_cast<uint32_t>(idx), element);
-      if (value != NULL) delete value;
     }
 
     napi_value argv[2];
@@ -1267,9 +1233,9 @@ struct GetManyWorker final : public PriorityWorker {
 
 private:
   leveldb::ReadOptions options_;
-  const std::vector<std::string>* keys_;
+  const std::vector<std::string> keys_;
   const bool valueAsBuffer_;
-  std::vector<std::string*> cache_;
+  std::vector<std::optional<std::string>> cache_;
 };
 
 /**
@@ -1279,14 +1245,14 @@ NAPI_METHOD(db_get_many) {
   NAPI_ARGV(4);
   NAPI_DB_CONTEXT();
 
-  const std::vector<std::string>* keys = KeyArray(env, argv[1]);
+  const auto keys = KeyArray(env, argv[1]);
   napi_value options = argv[2];
   const bool asBuffer = EncodingIsBuffer(env, options, "valueEncoding");
   const bool fillCache = BooleanProperty(env, options, "fillCache", true);
   napi_value callback = argv[3];
 
   GetManyWorker* worker = new GetManyWorker(
-    env, database, keys, callback, asBuffer, fillCache
+    env, database, std::move(keys), callback, asBuffer, fillCache
   );
 
   worker->Queue(env);
@@ -1349,19 +1315,13 @@ struct ClearWorker final : public PriorityWorker {
                std::string* lte,
                std::string* gt,
                std::string* gte)
-    : PriorityWorker(env, database, callback, "classic_level.db.clear") {
-    iterator_ = new BaseIterator(database, reverse, lt, lte, gt, gte, limit, false);
-    writeOptions_ = new leveldb::WriteOptions();
-    writeOptions_->sync = false;
-  }
-
-  ~ClearWorker () {
-    delete iterator_;
-    delete writeOptions_;
+    : PriorityWorker(env, database, callback, "classic_level.db.clear")
+    , iterator_(database, reverse, lt, lte, gt, gte, limit, false) {
+    writeOptions_.sync = false;
   }
 
   void DoExecute () override {
-    iterator_->SeekToRange();
+    iterator_.SeekToRange();
 
     // TODO: add option
     uint32_t hwm = 16 * 1024;
@@ -1370,30 +1330,30 @@ struct ClearWorker final : public PriorityWorker {
     while (true) {
       size_t bytesRead = 0;
 
-      while (bytesRead <= hwm && iterator_->Valid() && iterator_->Increment()) {
-        leveldb::Slice key = iterator_->CurrentKey();
+      while (bytesRead <= hwm && iterator_.Valid() && iterator_.Increment()) {
+        const auto key = iterator_.CurrentKey();
         batch.Delete(key);
         bytesRead += key.size();
-        iterator_->Next();
+        iterator_.Next();
       }
 
-      if (!SetStatus(iterator_->Status()) || bytesRead == 0) {
+      if (!SetStatus(iterator_.Status()) || bytesRead == 0) {
         break;
       }
 
-      if (!SetStatus(database_->WriteBatch(*writeOptions_, &batch))) {
+      if (!SetStatus(database_->WriteBatch(writeOptions_, &batch))) {
         break;
       }
 
       batch.Clear();
     }
 
-    iterator_->Close();
+    iterator_.Close();
   }
 
 private:
-  BaseIterator* iterator_;
-  leveldb::WriteOptions* writeOptions_;
+  BaseIterator iterator_;
+  leveldb::WriteOptions writeOptions_;
 };
 
 /**
@@ -1757,16 +1717,16 @@ struct NextWorker final : public BaseWorker {
   }
 
   void HandleOKCallback (napi_env env, napi_value callback) override {
-    size_t size = iterator_->cache_.size();
+    const auto size = iterator_->cache_.size();
     napi_value jsArray;
     napi_create_array_with_length(env, size, &jsArray);
 
-    const bool kab = iterator_->keyAsBuffer_;
-    const bool vab = iterator_->valueAsBuffer_;
+    const auto kab = iterator_->keyAsBuffer_;
+    const auto vab = iterator_->valueAsBuffer_;
 
     for (uint32_t idx = 0; idx < size; idx++) {
       napi_value element;
-      iterator_->cache_[idx].ConvertByMode(env, Mode::entries, kab, vab, &element);
+      iterator_->cache_[idx].ConvertByMode(env, Mode::entries, kab, vab, element);
       napi_set_element(env, jsArray, idx, element);
     }
 
