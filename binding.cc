@@ -10,6 +10,7 @@
 #include <leveldb/filter_policy.h>
 
 #include <map>
+#include <optional>
 #include <vector>
 
 /**
@@ -92,6 +93,13 @@ static bool IsObject (napi_env env, napi_value value) {
   napi_valuetype type;
   napi_typeof(env, value, &type);
   return type == napi_object;
+}
+
+std::string ToString(napi_env& env, const napi_value& from) {
+  LD_STRING_OR_BUFFER_TO_COPY(env, from, to);
+  auto str = std::string(toCh_, toSz_);
+  delete [] toCh_;
+  return str;
 }
 
 /**
@@ -253,19 +261,16 @@ static size_t StringOrBufferLength (napi_env env, napi_value value) {
  * Takes a Buffer or string property 'name' from 'opts'.
  * Returns null if the property does not exist or is zero-length.
  */
-static std::string* RangeOption (napi_env env, napi_value opts, const char* name) {
+static std::optional<std::string> RangeOption (napi_env env, napi_value opts, const char* name) {
   if (HasProperty(env, opts, name)) {
     napi_value value = GetProperty(env, opts, name);
 
     if (StringOrBufferLength(env, value) >= 0) {
-      LD_STRING_OR_BUFFER_TO_COPY(env, value, to);
-      std::string* result = new std::string(toCh_, toSz_);
-      delete [] toCh_;
-      return result;
+      return ToString(env, value);
     }
   }
 
-  return NULL;
+  return {};
 }
 
 /**
@@ -283,9 +288,7 @@ static std::vector<std::string>* KeyArray (napi_env env, napi_value arr) {
 
       if (napi_get_element(env, arr, i, &element) == napi_ok &&
           StringOrBufferLength(env, element) >= 0) {
-        LD_STRING_OR_BUFFER_TO_COPY(env, element, to);
-        result->emplace_back(toCh_, toSz_);
-        delete [] toCh_;
+        result->push_back(ToString(env, element));
       }
     }
   }
@@ -625,20 +628,20 @@ struct PriorityWorker : public BaseWorker {
 struct BaseIterator {
   BaseIterator(Database* database,
                const bool reverse,
-               std::string* lt,
-               std::string* lte,
-               std::string* gt,
-               std::string* gte,
+               std::optional<std::string> lt,
+               std::optional<std::string> lte,
+               std::optional<std::string> gt,
+               std::optional<std::string> gte,
                const int limit,
                const bool fillCache)
     : database_(database),
       hasClosed_(false),
       didSeek_(false),
       reverse_(reverse),
-      lt_(lt),
-      lte_(lte),
-      gt_(gt),
-      gte_(gte),
+      lt_(std::move(lt)),
+      lte_(std::move(lte)),
+      gt_(std::move(gt)),
+      gte_(std::move(gte)),
       limit_(limit),
       count_(0) {
     options_ = new leveldb::ReadOptions();
@@ -649,11 +652,6 @@ struct BaseIterator {
 
   virtual ~BaseIterator () {
     assert(hasClosed_);
-
-    if (lt_ != NULL) delete lt_;
-    if (gt_ != NULL) delete gt_;
-    if (lte_ != NULL) delete lte_;
-    if (gte_ != NULL) delete gte_;
 
     delete options_;
   }
@@ -668,15 +666,15 @@ struct BaseIterator {
   void SeekToRange () {
     didSeek_ = true;
 
-    if (!reverse_ && gte_ != NULL) {
+    if (!reverse_ && gte_) {
       dbIterator_->Seek(*gte_);
-    } else if (!reverse_ && gt_ != NULL) {
+    } else if (!reverse_ && gt_) {
       dbIterator_->Seek(*gt_);
 
       if (dbIterator_->Valid() && dbIterator_->key().compare(*gt_) == 0) {
         dbIterator_->Next();
       }
-    } else if (reverse_ && lte_ != NULL) {
+    } else if (reverse_ && lte_) {
       dbIterator_->Seek(*lte_);
 
       if (!dbIterator_->Valid()) {
@@ -684,7 +682,7 @@ struct BaseIterator {
       } else if (dbIterator_->key().compare(*lte_) > 0) {
         dbIterator_->Prev();
       }
-    } else if (reverse_ && lt_ != NULL) {
+    } else if (reverse_ && lt_) {
       dbIterator_->Seek(*lt_);
 
       if (!dbIterator_->Valid()) {
@@ -784,15 +782,15 @@ struct BaseIterator {
     // }
 
     // The lte and gte options take precedence over lt and gt respectively
-    if (lte_ != NULL) {
+    if (lte_) {
       if (target.compare(*lte_) > 0) return true;
-    } else if (lt_ != NULL) {
+    } else if (lt_) {
       if (target.compare(*lt_) >= 0) return true;
     }
 
-    if (gte_ != NULL) {
+    if (gte_) {
       if (target.compare(*gte_) < 0) return true;
-    } else if (gt_ != NULL) {
+    } else if (gt_) {
       if (target.compare(*gt_) <= 0) return true;
     }
 
@@ -806,10 +804,10 @@ private:
   leveldb::Iterator* dbIterator_;
   bool didSeek_;
   const bool reverse_;
-  std::string* lt_;
-  std::string* lte_;
-  std::string* gt_;
-  std::string* gte_;
+  std::optional<std::string> lt_;
+  std::optional<std::string> lte_;
+  std::optional<std::string> gt_;
+  std::optional<std::string> gte_;
   const int limit_;
   int count_;
   leveldb::ReadOptions* options_;
@@ -825,15 +823,15 @@ struct Iterator final : public BaseIterator {
             const bool keys,
             const bool values,
             const int limit,
-            std::string* lt,
-            std::string* lte,
-            std::string* gt,
-            std::string* gte,
+            std::optional<std::string> lt,
+            std::optional<std::string> lte,
+            std::optional<std::string> gt,
+            std::optional<std::string> gte,
             const bool fillCache,
             const bool keyAsBuffer,
             const bool valueAsBuffer,
             const uint32_t highWaterMarkBytes)
-    : BaseIterator(database, reverse, lt, lte, gt, gte, limit, fillCache),
+    : BaseIterator(database, reverse, std::move(lt), std::move(lte), std::move(gt), std::move(gte), limit, fillCache),
       id_(id),
       keys_(keys),
       values_(values),
@@ -1345,12 +1343,12 @@ struct ClearWorker final : public PriorityWorker {
                napi_value callback,
                const bool reverse,
                const int limit,
-               std::string* lt,
-               std::string* lte,
-               std::string* gt,
-               std::string* gte)
+               std::optional<std::string> lt,
+               std::optional<std::string> lte,
+               std::optional<std::string> gt,
+               std::optional<std::string> gte)
     : PriorityWorker(env, database, callback, "classic_level.db.clear") {
-    iterator_ = new BaseIterator(database, reverse, lt, lte, gt, gte, limit, false);
+    iterator_ = new BaseIterator(database, reverse, std::move(lt), std::move(lte), std::move(gt), std::move(gte), limit, false);
     writeOptions_ = new leveldb::WriteOptions();
     writeOptions_->sync = false;
   }
@@ -1409,12 +1407,12 @@ NAPI_METHOD(db_clear) {
   const bool reverse = BooleanProperty(env, options, "reverse", false);
   const int limit = Int32Property(env, options, "limit", -1);
 
-  std::string* lt = RangeOption(env, options, "lt");
-  std::string* lte = RangeOption(env, options, "lte");
-  std::string* gt = RangeOption(env, options, "gt");
-  std::string* gte = RangeOption(env, options, "gte");
+ const auto lt = RangeOption(env, options, "lt");
+ const auto lte = RangeOption(env, options, "lte");
+ const auto gt = RangeOption(env, options, "gt");
+ const auto gte = RangeOption(env, options, "gte");
 
-  ClearWorker* worker = new ClearWorker(env, database, callback, reverse, limit, lt, lte, gt, gte);
+  ClearWorker* worker = new ClearWorker(env, database, callback, reverse, limit, std::move(lt), std::move(lte), std::move(gt), std::move(gte));
   worker->Queue(env);
 
   NAPI_RETURN_UNDEFINED();
@@ -1635,14 +1633,14 @@ NAPI_METHOD(iterator_init) {
   const int limit = Int32Property(env, options, "limit", -1);
   const uint32_t highWaterMarkBytes = Uint32Property(env, options, "highWaterMarkBytes", 16 * 1024);
 
-  std::string* lt = RangeOption(env, options, "lt");
-  std::string* lte = RangeOption(env, options, "lte");
-  std::string* gt = RangeOption(env, options, "gt");
-  std::string* gte = RangeOption(env, options, "gte");
+  auto lt = RangeOption(env, options, "lt");
+  auto lte = RangeOption(env, options, "lte");
+  auto gt = RangeOption(env, options, "gt");
+  auto gte = RangeOption(env, options, "gte");
 
   const uint32_t id = database->currentIteratorId_++;
   Iterator* iterator = new Iterator(database, id, reverse, keys,
-                                    values, limit, lt, lte, gt, gte, fillCache,
+                                    values, limit, std::move(lt), std::move(lte), std::move(gt), std::move(gte), fillCache,
                                     keyAsBuffer, valueAsBuffer, highWaterMarkBytes);
   napi_value result;
 
