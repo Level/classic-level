@@ -830,6 +830,7 @@ struct Iterator final : public BaseIterator {
             std::string* gt,
             std::string* gte,
             const bool fillCache,
+            const bool flatten,
             const bool keyAsBuffer,
             const bool valueAsBuffer,
             const uint32_t highWaterMarkBytes)
@@ -839,6 +840,7 @@ struct Iterator final : public BaseIterator {
       values_(values),
       keyAsBuffer_(keyAsBuffer),
       valueAsBuffer_(valueAsBuffer),
+      flatten_(flatten),
       highWaterMarkBytes_(highWaterMarkBytes),
       first_(true),
       nexting_(false),
@@ -899,6 +901,7 @@ struct Iterator final : public BaseIterator {
   const bool values_;
   const bool keyAsBuffer_;
   const bool valueAsBuffer_;
+  const bool flatten_;
   const uint32_t highWaterMarkBytes_;
   bool first_;
   bool nexting_;
@@ -1630,6 +1633,7 @@ NAPI_METHOD(iterator_init) {
   const bool keys = BooleanProperty(env, options, "keys", true);
   const bool values = BooleanProperty(env, options, "values", true);
   const bool fillCache = BooleanProperty(env, options, "fillCache", false);
+  const bool flatten = BooleanProperty(env, options, "flatten", false);
   const bool keyAsBuffer = EncodingIsBuffer(env, options, "keyEncoding");
   const bool valueAsBuffer = EncodingIsBuffer(env, options, "valueEncoding");
   const int limit = Int32Property(env, options, "limit", -1);
@@ -1642,7 +1646,7 @@ NAPI_METHOD(iterator_init) {
 
   const uint32_t id = database->currentIteratorId_++;
   Iterator* iterator = new Iterator(database, id, reverse, keys,
-                                    values, limit, lt, lte, gt, gte, fillCache,
+                                    values, limit, lt, lte, gt, gte, fillCache, flatten,
                                     keyAsBuffer, valueAsBuffer, highWaterMarkBytes);
   napi_value result;
 
@@ -1757,17 +1761,35 @@ struct NextWorker final : public BaseWorker {
   }
 
   void HandleOKCallback (napi_env env, napi_value callback) override {
-    size_t size = iterator_->cache_.size();
-    napi_value jsArray;
-    napi_create_array_with_length(env, size, &jsArray);
-
     const bool kab = iterator_->keyAsBuffer_;
     const bool vab = iterator_->valueAsBuffer_;
+    const bool flatten = iterator_->flatten_;
 
-    for (uint32_t idx = 0; idx < size; idx++) {
-      napi_value element;
-      iterator_->cache_[idx].ConvertByMode(env, Mode::entries, kab, vab, &element);
-      napi_set_element(env, jsArray, idx, element);
+    napi_value jsArray;
+
+    if (flatten) {
+      const auto size = iterator_->cache_.size() * 2;
+      napi_create_array_with_length(env, size, &jsArray);
+
+      for (uint32_t idx = 0; idx < size; idx += 2) {
+        napi_value key;
+        napi_value value;
+
+        iterator_->cache_[idx].ConvertByMode(env, Mode::keys, kab, vab, &key);
+        iterator_->cache_[idx].ConvertByMode(env, Mode::values, kab, vab, &value);
+
+        napi_set_element(env, jsArray, idx + 0, key);
+        napi_set_element(env, jsArray, idx + 1, value);
+      }
+    } else {
+      const auto size = iterator_->cache_.size();
+      napi_create_array_with_length(env, size, &jsArray);
+      
+      for (uint32_t idx = 0; idx < size; idx++) {
+        napi_value element;
+        iterator_->cache_[idx].ConvertByMode(env, Mode::entries, kab, vab, &element);
+        napi_set_element(env, jsArray, idx, element);
+      }
     }
 
     napi_value argv[3];
