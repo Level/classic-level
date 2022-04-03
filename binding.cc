@@ -94,6 +94,24 @@ static bool IsObject (napi_env env, napi_value value) {
   return type == napi_object;
 }
 
+std::string toString(napi_env& env, const napi_value& from) {
+  size_t size = 0;
+  if (IsString(env, from)) {
+    // TODO (perf): Can we somehow copy directly into an
+    // allocated but uninitialized std::string?
+    LD_STRING_OR_BUFFER_TO_COPY(env, from, to);
+    auto result = std::string(toCh_, toSz_);
+    delete [] toCh_; // FIX: This will leak if std::string throws...
+    return result;
+  } else if (IsBuffer(env, from)) {
+    char* data = nullptr;
+    napi_get_buffer_info(env, from, reinterpret_cast<void**>(&data), &size);
+    return std::string(data, size);
+  }
+
+  return "";
+}
+
 /**
  * Create an error object.
  */
@@ -260,7 +278,7 @@ static std::string* RangeOption (napi_env env, napi_value opts, const char* name
     if (StringOrBufferLength(env, value) >= 0) {
       LD_STRING_OR_BUFFER_TO_COPY(env, value, to);
       std::string* result = new std::string(toCh_, toSz_);
-      delete [] toCh_;
+      delete [] toCh_; // FIX: This will leak if std::string throws...
       return result;
     }
   }
@@ -283,9 +301,7 @@ static std::vector<std::string>* KeyArray (napi_env env, napi_value arr) {
 
       if (napi_get_element(env, arr, i, &element) == napi_ok &&
           StringOrBufferLength(env, element) >= 0) {
-        LD_STRING_OR_BUFFER_TO_COPY(env, element, to);
-        result->emplace_back(toCh_, toSz_);
-        delete [] toCh_;
+        result->push_back(toString(env, element));
       }
     }
   }
