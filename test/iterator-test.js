@@ -39,3 +39,17 @@ make('iterator optimized for seek', function (db, t, done) {
     })
   })
 })
+
+make('iterator flatten', function (db, t, done) {
+  const batch = db.batch()
+  batch.put('a', 1)
+  batch.put('b', 1)
+  batch.write(function (err) {
+    t.ifError(err, 'no error from batch()')
+    const ite = db.iterator({ flatten: true }).all((err, arr) => {
+      t.ifError(err, 'no error from iterator')
+      t.same(arr, ['a', 1, 'b', 1])
+      done()
+    })
+  })
+})
