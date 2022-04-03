@@ -10,6 +10,7 @@
 #include <leveldb/filter_policy.h>
 
 #include <map>
+#include <optional>
 #include <vector>
 
 /**
