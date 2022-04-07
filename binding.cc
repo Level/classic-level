@@ -221,18 +221,6 @@ static std::string StringProperty (napi_env env, napi_value obj, const char* key
   return "";
 }
 
-static void DisposeSliceBuffer (leveldb::Slice slice) {
-  if (!slice.empty()) delete [] slice.data();
-}
-
-/**
- * Convert a napi_value to a leveldb::Slice.
- */
-static leveldb::Slice ToSlice (napi_env env, napi_value from) {
-  LD_STRING_OR_BUFFER_TO_COPY(env, from, to);
-  return leveldb::Slice(toCh_, toSz_);
-}
-
 /**
  * Returns length of string or buffer
  */
@@ -318,9 +306,10 @@ enum Mode {
  * Helper struct for caching and converting a key-value pair to napi_values.
  */
 struct Entry {
-  Entry (const leveldb::Slice* key, const leveldb::Slice* value)
-    : key_(key->data(), key->size()),
-      value_(value->data(), value->size()) {}
+  template<typename P1, typename P2>
+  Entry (P1&& key, P2&& value)
+    : key_(std::forward<P1>(key)),
+      value_(std::forward<P2>(key)) {}
 
   void ConvertByMode (napi_env env, Mode mode, const bool keyAsBuffer, const bool valueAsBuffer, napi_value* result) {
     if (mode == Mode::entries) {
@@ -354,6 +343,60 @@ struct Entry {
 private:
   std::string key_;
   std::string value_;
+};
+
+struct Slice {
+  Slice() = default;
+
+  Slice(napi_env env, napi_value from) {
+    size_t size = 0;
+    if (IsString(env, from)) {
+      NAPI_STATUS_THROWS_VOID(napi_get_value_string_utf8(env, from, NULL, 0, &size));
+      store_.resize(size, '\0');
+      size_t copied = 0;
+      const auto status = napi_get_value_string_utf8(env, from, &store_[0], store_.length() + 1, &copied);
+      store_.resize(copied);
+      NAPI_STATUS_THROWS_VOID(status);
+      assert(copied == size);
+    } else if (IsBuffer(env, from)) {
+      char* data = nullptr;
+      NAPI_STATUS_THROWS_VOID(napi_get_buffer_info(env, from, reinterpret_cast<void**>(&data), &size));
+      store_ = std::string(data, size);
+    }
+  }
+
+  Slice(const Slice& other) = default;
+  Slice(Slice&& other) = default;
+  Slice& operator=(const Slice& other) = default;
+  Slice& operator=(Slice&& other) = default;
+
+  Slice(leveldb::Slice slice)
+    : store_(slice.data(), slice.data() + slice.size()) {
+  }
+
+  template<typename T>
+  Slice(T&& string)
+    : store_(std::forward<T>(string)) {
+  }
+
+  auto size () const {
+    return store_.size();
+  }
+
+  auto data () const {
+    return store_.data();
+  }
+
+  operator leveldb::Slice () const {
+    return leveldb::Slice(data(), size());
+  }
+
+  operator std::string_view () const {
+    return store_;
+  }
+
+private:
+  std::string store_;
 };
 
 /**
@@ -515,19 +558,19 @@ struct Database {
   }
 
   leveldb::Status Put (const leveldb::WriteOptions& options,
-                       leveldb::Slice key,
-                       leveldb::Slice value) {
+                       const Slice& key,
+                       const Slice& value) {
     return db_->Put(options, key, value);
   }
 
   leveldb::Status Get (const leveldb::ReadOptions& options,
-                       leveldb::Slice key,
+                       const Slice& key,
                        std::string& value) {
     return db_->Get(options, key, &value);
   }
 
   leveldb::Status Del (const leveldb::WriteOptions& options,
-                       leveldb::Slice key) {
+                       const Slice& key) {
     return db_->Delete(options, key);
   }
 
@@ -542,12 +585,14 @@ struct Database {
     return size;
   }
 
-  void CompactRange (const leveldb::Slice* start,
-                     const leveldb::Slice* end) {
-    db_->CompactRange(start, end);
+  void CompactRange (const Slice& start,
+                     const Slice& end) {
+    auto start2 = leveldb::Slice(start);
+    auto end2 = leveldb::Slice(end);
+    db_->CompactRange(&start2, &end2);
   }
 
-  void GetProperty (const leveldb::Slice& property, std::string* value) {
+  void GetProperty (const Slice& property, std::string* value) {
     db_->GetProperty(property, value);
   }
 
@@ -702,7 +747,7 @@ struct BaseIterator {
   /**
    * Seek manually (during iteration).
    */
-  void Seek (leveldb::Slice& target) {
+  void Seek (const Slice& target) {
     didSeek_ = true;
 
     if (OutOfRange(target)) {
@@ -863,7 +908,7 @@ struct Iterator final : public BaseIterator {
     cache_.clear();
     cache_.reserve(size);
     size_t bytesRead = 0;
-    leveldb::Slice empty;
+    Slice empty;
 
     while (true) {
       if (!first_) Next();
@@ -872,18 +917,18 @@ struct Iterator final : public BaseIterator {
       if (!Valid() || !Increment()) break;
 
       if (keys_ && values_) {
-        leveldb::Slice k = CurrentKey();
-        leveldb::Slice v = CurrentValue();
-        cache_.emplace_back(&k, &v);
+        Slice k = CurrentKey();
+        Slice v = CurrentValue();
         bytesRead += k.size() + v.size();
+        cache_.emplace_back(std::move(k), std::move(v));
       } else if (keys_) {
-        leveldb::Slice k = CurrentKey();
-        cache_.emplace_back(&k, &empty);
+        Slice k = CurrentKey();
         bytesRead += k.size();
+        cache_.emplace_back(std::move(k), empty);
       } else if (values_) {
-        leveldb::Slice v = CurrentValue();
-        cache_.emplace_back(&empty, &v);
+        Slice v = CurrentValue();
         bytesRead += v.size();
+        cache_.emplace_back(empty, std::move(v));
       }
 
       if (bytesRead > highWaterMarkBytes_ || cache_.size() >= size) {
@@ -1103,17 +1148,12 @@ struct PutWorker final : public PriorityWorker {
   PutWorker (napi_env env,
              Database* database,
              napi_value callback,
-             leveldb::Slice key,
-             leveldb::Slice value,
+             Slice key,
+             Slice value,
              bool sync)
     : PriorityWorker(env, database, callback, "classic_level.db.put"),
-      key_(key), value_(value) {
+      key_(std::move(key)), value_(std::move(value)) {
     options_.sync = sync;
-  }
-
-  ~PutWorker () {
-    DisposeSliceBuffer(key_);
-    DisposeSliceBuffer(value_);
   }
 
   void DoExecute () override {
@@ -1121,8 +1161,8 @@ struct PutWorker final : public PriorityWorker {
   }
 
   leveldb::WriteOptions options_;
-  leveldb::Slice key_;
-  leveldb::Slice value_;
+  Slice key_;
+  Slice value_;
 };
 
 /**
@@ -1132,12 +1172,12 @@ NAPI_METHOD(db_put) {
   NAPI_ARGV(5);
   NAPI_DB_CONTEXT();
 
-  leveldb::Slice key = ToSlice(env, argv[1]);
-  leveldb::Slice value = ToSlice(env, argv[2]);
+  Slice key = Slice(env, argv[1]);
+  Slice value = Slice(env, argv[2]);
   bool sync = BooleanProperty(env, argv[3], "sync", false);
   napi_value callback = argv[4];
 
-  PutWorker* worker = new PutWorker(env, database, callback, key, value, sync);
+  PutWorker* worker = new PutWorker(env, database, callback, std::move(key), std::move(value), sync);
   worker->Queue(env);
 
   NAPI_RETURN_UNDEFINED();
@@ -1150,17 +1190,13 @@ struct GetWorker final : public PriorityWorker {
   GetWorker (napi_env env,
              Database* database,
              napi_value callback,
-             leveldb::Slice key,
+             Slice key,
              const bool asBuffer,
              const bool fillCache)
     : PriorityWorker(env, database, callback, "classic_level.db.get"),
       key_(key),
       asBuffer_(asBuffer) {
     options_.fill_cache = fillCache;
-  }
-
-  ~GetWorker () {
-    DisposeSliceBuffer(key_);
   }
 
   void DoExecute () override {
@@ -1176,7 +1212,7 @@ struct GetWorker final : public PriorityWorker {
 
 private:
   leveldb::ReadOptions options_;
-  leveldb::Slice key_;
+  Slice key_;
   std::string value_;
   const bool asBuffer_;
 };
@@ -1188,13 +1224,13 @@ NAPI_METHOD(db_get) {
   NAPI_ARGV(4);
   NAPI_DB_CONTEXT();
 
-  leveldb::Slice key = ToSlice(env, argv[1]);
+  Slice key = Slice(env, argv[1]);
   napi_value options = argv[2];
   const bool asBuffer = EncodingIsBuffer(env, options, "valueEncoding");
   const bool fillCache = BooleanProperty(env, options, "fillCache", true);
   napi_value callback = argv[3];
 
-  GetWorker* worker = new GetWorker(env, database, callback, key, asBuffer,
+  GetWorker* worker = new GetWorker(env, database, callback, std::move(key), asBuffer,
                                     fillCache);
   worker->Queue(env);
 
@@ -1300,15 +1336,11 @@ struct DelWorker final : public PriorityWorker {
   DelWorker (napi_env env,
              Database* database,
              napi_value callback,
-             leveldb::Slice key,
+             Slice key,
              bool sync)
     : PriorityWorker(env, database, callback, "classic_level.db.del"),
-      key_(key) {
+      key_(std::move(key)) {
     options_.sync = sync;
-  }
-
-  ~DelWorker () {
-    DisposeSliceBuffer(key_);
   }
 
   void DoExecute () override {
@@ -1316,7 +1348,7 @@ struct DelWorker final : public PriorityWorker {
   }
 
   leveldb::WriteOptions options_;
-  leveldb::Slice key_;
+  Slice key_;
 };
 
 /**
@@ -1326,11 +1358,11 @@ NAPI_METHOD(db_del) {
   NAPI_ARGV(4);
   NAPI_DB_CONTEXT();
 
-  leveldb::Slice key = ToSlice(env, argv[1]);
+  Slice key = Slice(env, argv[1]);
   bool sync = BooleanProperty(env, argv[2], "sync", false);
   napi_value callback = argv[3];
 
-  DelWorker* worker = new DelWorker(env, database, callback, key, sync);
+  DelWorker* worker = new DelWorker(env, database, callback, std::move(key), sync);
   worker->Queue(env);
 
   NAPI_RETURN_UNDEFINED();
@@ -1371,7 +1403,7 @@ struct ClearWorker final : public PriorityWorker {
       size_t bytesRead = 0;
 
       while (bytesRead <= hwm && iterator_->Valid() && iterator_->Increment()) {
-        leveldb::Slice key = iterator_->CurrentKey();
+        Slice key = iterator_->CurrentKey();
         batch.Delete(key);
         bytesRead += key.size();
         iterator_->Next();
@@ -1427,15 +1459,10 @@ struct ApproximateSizeWorker final : public PriorityWorker {
   ApproximateSizeWorker (napi_env env,
                          Database* database,
                          napi_value callback,
-                         leveldb::Slice start,
-                         leveldb::Slice end)
+                         Slice start,
+                         Slice end)
     : PriorityWorker(env, database, callback, "classic_level.db.approximate_size"),
-      start_(start), end_(end) {}
-
-  ~ApproximateSizeWorker () {
-    DisposeSliceBuffer(start_);
-    DisposeSliceBuffer(end_);
-  }
+      start_(std::move(start)), end_(std::move(end)) {}
 
   void DoExecute () override {
     leveldb::Range range(start_, end_);
@@ -1449,8 +1476,8 @@ struct ApproximateSizeWorker final : public PriorityWorker {
     CallFunction(env, callback, 2, argv);
   }
 
-  leveldb::Slice start_;
-  leveldb::Slice end_;
+  Slice start_;
+  Slice end_;
   uint64_t size_;
 };
 
@@ -1461,14 +1488,14 @@ NAPI_METHOD(db_approximate_size) {
   NAPI_ARGV(4);
   NAPI_DB_CONTEXT();
 
-  leveldb::Slice start = ToSlice(env, argv[1]);
-  leveldb::Slice end = ToSlice(env, argv[2]);
+  Slice start = Slice(env, argv[1]);
+  Slice end = Slice(env, argv[2]);
 
   napi_value callback = argv[3];
 
   ApproximateSizeWorker* worker  = new ApproximateSizeWorker(env, database,
-                                                             callback, start,
-                                                             end);
+                                                             callback, std::move(start),
+                                                             std::move(end));
   worker->Queue(env);
 
   NAPI_RETURN_UNDEFINED();
@@ -1481,22 +1508,17 @@ struct CompactRangeWorker final : public PriorityWorker {
   CompactRangeWorker (napi_env env,
                       Database* database,
                       napi_value callback,
-                      leveldb::Slice start,
-                      leveldb::Slice end)
+                      Slice start,
+                      Slice end)
     : PriorityWorker(env, database, callback, "classic_level.db.compact_range"),
-      start_(start), end_(end) {}
-
-  ~CompactRangeWorker () {
-    DisposeSliceBuffer(start_);
-    DisposeSliceBuffer(end_);
-  }
+      start_(std::move(start)), end_(std::move(end)) {}
 
   void DoExecute () override {
-    database_->CompactRange(&start_, &end_);
+    database_->CompactRange(start_, end_);
   }
 
-  leveldb::Slice start_;
-  leveldb::Slice end_;
+  Slice start_;
+  Slice end_;
 };
 
 /**
@@ -1506,12 +1528,12 @@ NAPI_METHOD(db_compact_range) {
   NAPI_ARGV(4);
   NAPI_DB_CONTEXT();
 
-  leveldb::Slice start = ToSlice(env, argv[1]);
-  leveldb::Slice end = ToSlice(env, argv[2]);
+  Slice start = Slice(env, argv[1]);
+  Slice end = Slice(env, argv[2]);
   napi_value callback = argv[3];
 
   CompactRangeWorker* worker  = new CompactRangeWorker(env, database, callback,
-                                                       start, end);
+                                                       std::move(start), std::move(end));
   worker->Queue(env);
 
   NAPI_RETURN_UNDEFINED();
@@ -1524,15 +1546,13 @@ NAPI_METHOD(db_get_property) {
   NAPI_ARGV(2);
   NAPI_DB_CONTEXT();
 
-  leveldb::Slice property = ToSlice(env, argv[1]);
+  Slice property = Slice(env, argv[1]);
 
   std::string value;
   database->GetProperty(property, &value);
 
   napi_value result;
   napi_create_string_utf8(env, value.data(), value.size(), &result);
-
-  DisposeSliceBuffer(property);
 
   return result;
 }
@@ -1668,11 +1688,10 @@ NAPI_METHOD(iterator_seek) {
     NAPI_RETURN_UNDEFINED();
   }
 
-  leveldb::Slice target = ToSlice(env, argv[1]);
+  Slice target = Slice(env, argv[1]);
   iterator->first_ = true;
-  iterator->Seek(target);
+  iterator->Seek(std::move(target));
 
-  DisposeSliceBuffer(target);
   NAPI_RETURN_UNDEFINED();
 }
 
@@ -1879,24 +1898,19 @@ NAPI_METHOD(batch_do) {
 
     if (type == "del") {
       if (!HasProperty(env, element, "key")) continue;
-      leveldb::Slice key = ToSlice(env, GetProperty(env, element, "key"));
+      Slice key = Slice(env, GetProperty(env, element, "key"));
 
-      batch->Delete(key);
+      batch->Delete(std::move(key));
       if (!hasData) hasData = true;
-
-      DisposeSliceBuffer(key);
     } else if (type == "put") {
       if (!HasProperty(env, element, "key")) continue;
       if (!HasProperty(env, element, "value")) continue;
 
-      leveldb::Slice key = ToSlice(env, GetProperty(env, element, "key"));
-      leveldb::Slice value = ToSlice(env, GetProperty(env, element, "value"));
+      Slice key = Slice(env, GetProperty(env, element, "key"));
+      Slice value = Slice(env, GetProperty(env, element, "value"));
 
       batch->Put(key, value);
       if (!hasData) hasData = true;
-
-      DisposeSliceBuffer(key);
-      DisposeSliceBuffer(value);
     }
   }
 
@@ -1919,12 +1933,12 @@ struct Batch {
     delete batch_;
   }
 
-  void Put (leveldb::Slice key, leveldb::Slice value) {
+  void Put (Slice key, Slice value) {
     batch_->Put(key, value);
     hasData_ = true;
   }
 
-  void Del (leveldb::Slice key) {
+  void Del (Slice key) {
     batch_->Delete(key);
     hasData_ = true;
   }
@@ -1977,11 +1991,7 @@ NAPI_METHOD(batch_put) {
   NAPI_ARGV(3);
   NAPI_BATCH_CONTEXT();
 
-  leveldb::Slice key = ToSlice(env, argv[1]);
-  leveldb::Slice value = ToSlice(env, argv[2]);
-  batch->Put(key, value);
-  DisposeSliceBuffer(key);
-  DisposeSliceBuffer(value);
+  batch->Put(Slice(env, argv[1]), Slice(env, argv[2]));
 
   NAPI_RETURN_UNDEFINED();
 }
@@ -1993,9 +2003,7 @@ NAPI_METHOD(batch_del) {
   NAPI_ARGV(2);
   NAPI_BATCH_CONTEXT();
 
-  leveldb::Slice key = ToSlice(env, argv[1]);
-  batch->Del(key);
-  DisposeSliceBuffer(key);
+  batch->Del(Slice(env, argv[1]));
 
   NAPI_RETURN_UNDEFINED();
 }
