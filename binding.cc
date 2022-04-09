@@ -1900,38 +1900,38 @@ NAPI_METHOD(batch_do) {
  * Owns a WriteBatch.
  */
 struct Batch {
+  Batch(const Batch&) = delete;
+  Batch(Batch&&) = delete;
+  Batch& operator=(const Batch&) = delete;
+  Batch& operator=(Batch&&) = delete;
+
   Batch (Database* database)
     : database_(database),
-      batch_(new leveldb::WriteBatch()),
       hasData_(false) {}
 
-  ~Batch () {
-    delete batch_;
-  }
-
   void Put (leveldb::Slice key, leveldb::Slice value) {
-    batch_->Put(key, value);
+    batch_.Put(key, value);
     hasData_ = true;
   }
 
   void Del (leveldb::Slice key) {
-    batch_->Delete(key);
+    batch_.Delete(key);
     hasData_ = true;
   }
 
   void Clear () {
-    batch_->Clear();
+    batch_.Clear();
     hasData_ = false;
   }
 
   leveldb::Status Write (bool sync) {
     leveldb::WriteOptions options;
     options.sync = sync;
-    return database_->WriteBatch(options, batch_);
+    return database_->WriteBatch(options, &batch_);
   }
 
   Database* database_;
-  leveldb::WriteBatch* batch_;
+  leveldb::WriteBatch batch_;
   bool hasData_;
 };
 
