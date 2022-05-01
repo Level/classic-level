@@ -744,8 +744,7 @@ Before calling `repair()`, close a database if it's using the same `location`.
 
 ## Ordering
 
-All write operations are asynchronously dispatched on the node thread pool and therefore the ordering
-is not guaranteed.
+Write operations don't have a defined order because they are asynchronously dispatched on the Node.js thread pool.
 
 Consider:
 
