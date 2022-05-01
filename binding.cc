@@ -11,6 +11,8 @@
 
 #include <map>
 #include <vector>
+#include <array>
+#include <memory>
 
 /**
  * Forward declarations.
@@ -248,6 +250,37 @@ static size_t StringOrBufferLength (napi_env env, napi_value value) {
 
   return size;
 }
+
+struct NapiSlice {
+  NapiSlice(napi_env env, napi_value from) {
+    if (IsString(env, from)) {
+      NAPI_STATUS_THROWS_VOID(napi_get_value_string_utf8(env, from, nullptr, 0, &size_));
+      char* data;
+      if (size_ + 1 < stack_.size()) {
+        data = stack_.data();
+      } else {
+        heap_.reset(new char[size_ + 1]);
+        data = heap_.get();
+      }
+      data[size_] = 0;
+      NAPI_STATUS_THROWS_VOID(napi_get_value_string_utf8(env, from, data, size_ + 1, &size_));
+      data_ = data;
+    } else if (IsBuffer(env, from)) {
+      void* data;
+      NAPI_STATUS_THROWS_VOID(napi_get_buffer_info(env, from, &data, &size_));
+      data_ = static_cast<char*>(data);
+    }
+  }
+
+  operator leveldb::Slice() const {
+    return leveldb::Slice(data_, size_);
+  }
+
+  std::unique_ptr<char[]> heap_;
+  std::array<char, 1024> stack_;
+  char* data_;
+  size_t size_;
+};
 
 /**
  * Takes a Buffer or string property 'name' from 'opts'.
@@ -1977,11 +2010,9 @@ NAPI_METHOD(batch_put) {
   NAPI_ARGV(3);
   NAPI_BATCH_CONTEXT();
 
-  leveldb::Slice key = ToSlice(env, argv[1]);
-  leveldb::Slice value = ToSlice(env, argv[2]);
+  const auto key = NapiSlice(env, argv[1]);
+  const auto value = NapiSlice(env, argv[2]);
   batch->Put(key, value);
-  DisposeSliceBuffer(key);
-  DisposeSliceBuffer(value);
 
   NAPI_RETURN_UNDEFINED();
 }
@@ -1993,9 +2024,8 @@ NAPI_METHOD(batch_del) {
   NAPI_ARGV(2);
   NAPI_BATCH_CONTEXT();
 
-  leveldb::Slice key = ToSlice(env, argv[1]);
+  const auto key = NapiSlice(env, argv[1]);
   batch->Del(key);
-  DisposeSliceBuffer(key);
 
   NAPI_RETURN_UNDEFINED();
 }
