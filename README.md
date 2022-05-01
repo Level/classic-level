@@ -744,7 +744,7 @@ Before calling `repair()`, close a database if it's using the same `location`.
 
 ## Ordering
 
-Write operations don't have a defined order because they are asynchronously dispatched on the Node.js thread pool.
+Write operations don't have a defined order because they are asynchronously dispatched.
 
 Consider:
 
@@ -753,10 +753,10 @@ await Promise.all([
   db.put('foo', 1)
   db.put('foo', 2)
 ])
-const result = await db.get('foo)
+const result = await db.get('foo')
 ```
 
-The value of `result` could be either `1` or `2` depending on thread pool scheduling.
+The value of `result` could be either `1` or `2`.
 
 Furthermore since reads fetch the snapshot immediatly, writes will not be visible until at latest
 after the write promise has resolved.
