@@ -5,6 +5,7 @@ updates:
     schedule:
       interval: monthly
     ignore:
+      - dependency-name: standard
       - dependency-name: dependency-check
       - dependency-name: node-gyp
       # ESM-only
