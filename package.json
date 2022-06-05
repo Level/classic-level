@@ -7,7 +7,7 @@
   "types": "./index.d.ts",
   "scripts": {
     "install": "node-gyp-build",
-    "test": "standard && ts-standard *.ts && (nyc -s tape test/*-test.js | faucet) && nyc report",
+    "test": "standard && (nyc -s tape test/*-test.js | faucet) && nyc report",
     "test-gc": "node --expose-gc test/gc.js",
     "test-electron": "electron test/electron.js",
     "test-prebuild": "cross-env PREBUILDS_ONLY=1 npm t",
@@ -55,7 +55,6 @@
     "standard": "^17.0.0",
     "tape": "^5.5.0",
     "tempy": "^1.0.1",
-    "ts-standard": "^11.0.0",
     "typescript": "^4.5.5"
   },
   "gypfile": true,
