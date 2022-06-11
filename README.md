@@ -742,6 +742,33 @@ You will find information on the repair operation in the `LOG` file inside the d
 
 Before calling `repair()`, close a database if it's using the same `location`.
 
+## Ordering
+
+Write operations don't have a defined order because they are asynchronously dispatched.
+
+Consider:
+
+``js
+await Promise.all([
+  db.put('foo', 1)
+  db.put('foo', 2)
+])
+const result = await db.get('foo')
+```
+
+The value of `result` could be either `1` or `2`.
+
+Furthermore since reads fetch the snapshot immediatly, writes will not be visible until at latest
+after the write promise has resolved.
+
+``js
+await db.put('foo', 1)
+db.put('foo', 2)
+const result = await db.get('foo')
+```
+
+The value of `result` will be `1`.
+
 ## Development
 
 ### Getting Started
