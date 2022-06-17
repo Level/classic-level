@@ -28,7 +28,7 @@ import {
  * @template VDefault The default type of values if not overridden on operations.
  */
 declare class ClassicLevel<KDefault = string, VDefault = string>
-  extends AbstractLevel<string | Buffer, KDefault, VDefault> {
+  extends AbstractLevel<string | Buffer | Uint8Array, KDefault, VDefault> {
   /**
    * Database constructor.
    *

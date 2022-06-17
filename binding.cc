@@ -48,6 +48,7 @@ static void iterator_close_do (napi_env env, Iterator* iterator, napi_value cb);
 #define NAPI_ARGV_UTF8_NEW(name, i) \
   NAPI_UTF8_NEW(name, argv[i])
 
+// TODO: consider using encoding options instead of type checking
 #define LD_STRING_OR_BUFFER_TO_COPY(env, from, to)                      \
   char* to##Ch_ = 0;                                                    \
   size_t to##Sz_ = 0;                                                   \
@@ -61,6 +62,18 @@ static void iterator_close_do (napi_env env, Iterator* iterator, napi_value cb);
     napi_get_buffer_info(env, from, (void **)&buf, &to##Sz_);           \
     to##Ch_ = new char[to##Sz_];                                        \
     memcpy(to##Ch_, buf, to##Sz_);                                      \
+  } else {                                                              \
+    char* buf = 0;                                                      \
+    napi_typedarray_type type;                                          \
+    napi_status status = napi_get_typedarray_info(env, from, &type, &to##Sz_, (void **)&buf, NULL, NULL); \
+    if (status != napi_ok || type != napi_typedarray_type::napi_uint8_array) { \
+      /* TODO: refactor so that we can napi_throw_type_error() here */  \
+      to##Sz_ = 0;                                                      \
+      to##Ch_ = new char[to##Sz_];                                      \
+    } else {                                                            \
+      to##Ch_ = new char[to##Sz_];                                      \
+      memcpy(to##Ch_, buf, to##Sz_);                                    \
+    }                                                                   \
   }
 
 /*********************************************************************
@@ -149,20 +162,26 @@ static bool BooleanProperty (napi_env env, napi_value obj, const char* key,
   return DEFAULT;
 }
 
+enum Encoding { buffer, utf8, view };
+
 /**
- * Returns true if the options object contains an encoding option that is "buffer"
+ * Returns internal Encoding enum matching the given encoding option.
  */
-static bool EncodingIsBuffer (napi_env env, napi_value options, const char* option) {
+static Encoding GetEncoding (napi_env env, napi_value options, const char* option) {
   napi_value value;
-  size_t size;
+  size_t copied;
+  char buf[2];
 
   if (napi_get_named_property(env, options, option, &value) == napi_ok &&
-    napi_get_value_string_utf8(env, value, NULL, 0, &size) == napi_ok) {
-    // Value is either "buffer" or "utf8" so we can tell them apart just by size
-    return size == 6;
+    napi_get_value_string_utf8(env, value, buf, 2, &copied) == napi_ok && copied == 1) {
+    // Value is either "buffer", "utf8" or "view" so we only have to read the first char
+    switch (buf[0]) {
+      case 'b': return Encoding::buffer;
+      case 'v': return Encoding::view;
+    }
   }
 
-  return false;
+  return Encoding::utf8;
 }
 
 /**
@@ -234,35 +253,17 @@ static leveldb::Slice ToSlice (napi_env env, napi_value from) {
 }
 
 /**
- * Returns length of string or buffer
- */
-static size_t StringOrBufferLength (napi_env env, napi_value value) {
-  size_t size = 0;
-
-  if (IsString(env, value)) {
-    napi_get_value_string_utf8(env, value, NULL, 0, &size);
-  } else if (IsBuffer(env, value)) {
-    char* buf;
-    napi_get_buffer_info(env, value, (void **)&buf, &size);
-  }
-
-  return size;
-}
-
-/**
- * Takes a Buffer or string property 'name' from 'opts'.
- * Returns null if the property does not exist or is zero-length.
+ * Takes a Buffer, string or Uint8Array property 'name' from 'opts'.
+ * Returns null if the property does not exist.
  */
 static std::string* RangeOption (napi_env env, napi_value opts, const char* name) {
   if (HasProperty(env, opts, name)) {
     napi_value value = GetProperty(env, opts, name);
-
-    if (StringOrBufferLength(env, value) >= 0) {
-      LD_STRING_OR_BUFFER_TO_COPY(env, value, to);
-      std::string* result = new std::string(toCh_, toSz_);
-      delete [] toCh_;
-      return result;
-    }
+    // TODO: we can avoid a copy here
+    LD_STRING_OR_BUFFER_TO_COPY(env, value, to);
+    std::string* result = new std::string(toCh_, toSz_);
+    delete [] toCh_;
+    return result;
   }
 
   return NULL;
@@ -281,8 +282,7 @@ static std::vector<std::string> KeyArray (napi_env env, napi_value arr) {
     for (uint32_t i = 0; i < length; i++) {
       napi_value element;
 
-      if (napi_get_element(env, arr, i, &element) == napi_ok &&
-          StringOrBufferLength(env, element) >= 0) {
+      if (napi_get_element(env, arr, i, &element) == napi_ok) {
         LD_STRING_OR_BUFFER_TO_COPY(env, element, to);
         result.emplace_back(toCh_, toSz_);
         delete [] toCh_;
@@ -322,29 +322,32 @@ struct Entry {
     : key_(key.data(), key.size()),
       value_(value.data(), value.size()) {}
 
-  void ConvertByMode (napi_env env, Mode mode, const bool keyAsBuffer, const bool valueAsBuffer, napi_value& result) {
+  void ConvertByMode (napi_env env, Mode mode, const Encoding keyEncoding, const Encoding valueEncoding, napi_value& result) const {
     if (mode == Mode::entries) {
       napi_create_array_with_length(env, 2, &result);
 
       napi_value keyElement;
       napi_value valueElement;
 
-      Convert(env, &key_, keyAsBuffer, keyElement);
-      Convert(env, &value_, valueAsBuffer, valueElement);
+      Convert(env, &key_, keyEncoding, keyElement);
+      Convert(env, &value_, valueEncoding, valueElement);
 
       napi_set_element(env, result, 0, keyElement);
       napi_set_element(env, result, 1, valueElement);
     } else if (mode == Mode::keys) {
-      Convert(env, &key_, keyAsBuffer, result);
+      Convert(env, &key_, keyEncoding, result);
     } else {
-      Convert(env, &value_, valueAsBuffer, result);
+      Convert(env, &value_, valueEncoding, result);
     }
   }
 
-  static void Convert (napi_env env, const std::string* s, const bool asBuffer, napi_value& result) {
+  static void Convert (napi_env env, const std::string* s, const Encoding encoding, napi_value& result) {
     if (s == NULL) {
       napi_get_undefined(env, &result);
-    } else if (asBuffer) {
+    } else if (encoding == Encoding::buffer) {
+      napi_create_buffer_copy(env, s->size(), s->data(), NULL, &result);
+    } else if (encoding == Encoding::view) {
+      // TODO: use napi_create_typedarray if performance is equal or better
       napi_create_buffer_copy(env, s->size(), s->data(), NULL, &result);
     } else {
       napi_create_string_utf8(env, s->data(), s->size(), &result);
@@ -830,15 +833,15 @@ struct Iterator final : public BaseIterator {
             std::string* gt,
             std::string* gte,
             const bool fillCache,
-            const bool keyAsBuffer,
-            const bool valueAsBuffer,
+            const Encoding keyEncoding,
+            const Encoding valueEncoding,
             const uint32_t highWaterMarkBytes)
     : BaseIterator(database, reverse, lt, lte, gt, gte, limit, fillCache),
       id_(id),
       keys_(keys),
       values_(values),
-      keyAsBuffer_(keyAsBuffer),
-      valueAsBuffer_(valueAsBuffer),
+      keyEncoding_(keyEncoding),
+      valueEncoding_(valueEncoding),
       highWaterMarkBytes_(highWaterMarkBytes),
       first_(true),
       nexting_(false),
@@ -897,8 +900,8 @@ struct Iterator final : public BaseIterator {
   const uint32_t id_;
   const bool keys_;
   const bool values_;
-  const bool keyAsBuffer_;
-  const bool valueAsBuffer_;
+  const Encoding keyEncoding_;
+  const Encoding valueEncoding_;
   const uint32_t highWaterMarkBytes_;
   bool first_;
   bool nexting_;
@@ -1151,11 +1154,11 @@ struct GetWorker final : public PriorityWorker {
              Database* database,
              napi_value callback,
              leveldb::Slice key,
-             const bool asBuffer,
+             const Encoding encoding,
              const bool fillCache)
     : PriorityWorker(env, database, callback, "classic_level.db.get"),
       key_(key),
-      asBuffer_(asBuffer) {
+      encoding_(encoding) {
     options_.fill_cache = fillCache;
   }
 
@@ -1170,7 +1173,7 @@ struct GetWorker final : public PriorityWorker {
   void HandleOKCallback (napi_env env, napi_value callback) override {
     napi_value argv[2];
     napi_get_null(env, &argv[0]);
-    Entry::Convert(env, &value_, asBuffer_, argv[1]);
+    Entry::Convert(env, &value_, encoding_, argv[1]);
     CallFunction(env, callback, 2, argv);
   }
 
@@ -1178,7 +1181,7 @@ private:
   leveldb::ReadOptions options_;
   leveldb::Slice key_;
   std::string value_;
-  const bool asBuffer_;
+  const Encoding encoding_;
 };
 
 /**
@@ -1190,11 +1193,11 @@ NAPI_METHOD(db_get) {
 
   leveldb::Slice key = ToSlice(env, argv[1]);
   napi_value options = argv[2];
-  const bool asBuffer = EncodingIsBuffer(env, options, "valueEncoding");
+  const Encoding encoding = GetEncoding(env, options, "valueEncoding");
   const bool fillCache = BooleanProperty(env, options, "fillCache", true);
   napi_value callback = argv[3];
 
-  GetWorker* worker = new GetWorker(env, database, callback, key, asBuffer,
+  GetWorker* worker = new GetWorker(env, database, callback, key, encoding,
                                     fillCache);
   worker->Queue(env);
 
@@ -1209,10 +1212,10 @@ struct GetManyWorker final : public PriorityWorker {
                  Database* database,
                  std::vector<std::string> keys,
                  napi_value callback,
-                 const bool valueAsBuffer,
+                 const Encoding valueEncoding,
                  const bool fillCache)
     : PriorityWorker(env, database, callback, "classic_level.get.many"),
-      keys_(std::move(keys)), valueAsBuffer_(valueAsBuffer) {
+      keys_(std::move(keys)), valueEncoding_(valueEncoding) {
       options_.fill_cache = fillCache;
       options_.snapshot = database->NewSnapshot();
     }
@@ -1250,7 +1253,7 @@ struct GetManyWorker final : public PriorityWorker {
     for (size_t idx = 0; idx < size; idx++) {
       std::string* value = cache_[idx];
       napi_value element;
-      Entry::Convert(env, value, valueAsBuffer_, element);
+      Entry::Convert(env, value, valueEncoding_, element);
       napi_set_element(env, array, static_cast<uint32_t>(idx), element);
       if (value != NULL) delete value;
     }
@@ -1264,7 +1267,7 @@ struct GetManyWorker final : public PriorityWorker {
 private:
   leveldb::ReadOptions options_;
   const std::vector<std::string> keys_;
-  const bool valueAsBuffer_;
+  const Encoding valueEncoding_;
   std::vector<std::string*> cache_;
 };
 
@@ -1277,12 +1280,12 @@ NAPI_METHOD(db_get_many) {
 
   const auto keys = KeyArray(env, argv[1]);
   napi_value options = argv[2];
-  const bool asBuffer = EncodingIsBuffer(env, options, "valueEncoding");
+  const Encoding valueEncoding = GetEncoding(env, options, "valueEncoding");
   const bool fillCache = BooleanProperty(env, options, "fillCache", true);
   napi_value callback = argv[3];
 
   GetManyWorker* worker = new GetManyWorker(
-    env, database, keys, callback, asBuffer, fillCache
+    env, database, keys, callback, valueEncoding, fillCache
   );
 
   worker->Queue(env);
@@ -1626,8 +1629,8 @@ NAPI_METHOD(iterator_init) {
   const bool keys = BooleanProperty(env, options, "keys", true);
   const bool values = BooleanProperty(env, options, "values", true);
   const bool fillCache = BooleanProperty(env, options, "fillCache", false);
-  const bool keyAsBuffer = EncodingIsBuffer(env, options, "keyEncoding");
-  const bool valueAsBuffer = EncodingIsBuffer(env, options, "valueEncoding");
+  const Encoding keyEncoding = GetEncoding(env, options, "keyEncoding");
+  const Encoding valueEncoding = GetEncoding(env, options, "valueEncoding");
   const int limit = Int32Property(env, options, "limit", -1);
   const uint32_t highWaterMarkBytes = Uint32Property(env, options, "highWaterMarkBytes", 16 * 1024);
 
@@ -1639,7 +1642,7 @@ NAPI_METHOD(iterator_init) {
   const uint32_t id = database->currentIteratorId_++;
   Iterator* iterator = new Iterator(database, id, reverse, keys,
                                     values, limit, lt, lte, gt, gte, fillCache,
-                                    keyAsBuffer, valueAsBuffer, highWaterMarkBytes);
+                                    keyEncoding, valueEncoding, highWaterMarkBytes);
   napi_value result;
 
   NAPI_STATUS_THROWS(napi_create_external(env, iterator,
@@ -1757,12 +1760,12 @@ struct NextWorker final : public BaseWorker {
     napi_value jsArray;
     napi_create_array_with_length(env, size, &jsArray);
 
-    const bool kab = iterator_->keyAsBuffer_;
-    const bool vab = iterator_->valueAsBuffer_;
+    const Encoding ke = iterator_->keyEncoding_;
+    const Encoding ve = iterator_->valueEncoding_;
 
     for (uint32_t idx = 0; idx < size; idx++) {
       napi_value element;
-      iterator_->cache_[idx].ConvertByMode(env, Mode::entries, kab, vab, element);
+      iterator_->cache_[idx].ConvertByMode(env, Mode::entries, ke, ve, element);
       napi_set_element(env, jsArray, idx, element);
     }
 

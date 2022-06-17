@@ -28,7 +28,8 @@ class ClassicLevel extends AbstractLevel {
     super({
       encodings: {
         buffer: true,
-        utf8: true
+        utf8: true,
+        view: true
       },
       seek: true,
       createIfMissing: true,
