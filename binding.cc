@@ -271,12 +271,12 @@ static std::string* RangeOption (napi_env env, napi_value opts, const char* name
 /**
  * Converts an array containing Buffer or string keys to a vector.
  */
-static std::vector<std::string>* KeyArray (napi_env env, napi_value arr) {
+static std::vector<std::string> KeyArray (napi_env env, napi_value arr) {
   uint32_t length;
-  std::vector<std::string>* result = new std::vector<std::string>();
+  std::vector<std::string> result;
 
   if (napi_get_array_length(env, arr, &length) == napi_ok) {
-    result->reserve(length);
+    result.reserve(length);
 
     for (uint32_t i = 0; i < length; i++) {
       napi_value element;
@@ -284,7 +284,7 @@ static std::vector<std::string>* KeyArray (napi_env env, napi_value arr) {
       if (napi_get_element(env, arr, i, &element) == napi_ok &&
           StringOrBufferLength(env, element) >= 0) {
         LD_STRING_OR_BUFFER_TO_COPY(env, element, to);
-        result->emplace_back(toCh_, toSz_);
+        result.emplace_back(toCh_, toSz_);
         delete [] toCh_;
       }
     }
@@ -318,22 +318,22 @@ enum Mode {
  * Helper struct for caching and converting a key-value pair to napi_values.
  */
 struct Entry {
-  Entry (const leveldb::Slice* key, const leveldb::Slice* value)
-    : key_(key->data(), key->size()),
-      value_(value->data(), value->size()) {}
+  Entry (const leveldb::Slice& key, const leveldb::Slice& value)
+    : key_(key.data(), key.size()),
+      value_(value.data(), value.size()) {}
 
-  void ConvertByMode (napi_env env, Mode mode, const bool keyAsBuffer, const bool valueAsBuffer, napi_value* result) {
+  void ConvertByMode (napi_env env, Mode mode, const bool keyAsBuffer, const bool valueAsBuffer, napi_value& result) {
     if (mode == Mode::entries) {
-      napi_create_array_with_length(env, 2, result);
+      napi_create_array_with_length(env, 2, &result);
 
       napi_value keyElement;
       napi_value valueElement;
 
-      Convert(env, &key_, keyAsBuffer, &keyElement);
-      Convert(env, &value_, valueAsBuffer, &valueElement);
+      Convert(env, &key_, keyAsBuffer, keyElement);
+      Convert(env, &value_, valueAsBuffer, valueElement);
 
-      napi_set_element(env, *result, 0, keyElement);
-      napi_set_element(env, *result, 1, valueElement);
+      napi_set_element(env, result, 0, keyElement);
+      napi_set_element(env, result, 1, valueElement);
     } else if (mode == Mode::keys) {
       Convert(env, &key_, keyAsBuffer, result);
     } else {
@@ -341,13 +341,13 @@ struct Entry {
     }
   }
 
-  static void Convert (napi_env env, const std::string* s, const bool asBuffer, napi_value* result) {
+  static void Convert (napi_env env, const std::string* s, const bool asBuffer, napi_value& result) {
     if (s == NULL) {
-      napi_get_undefined(env, result);
+      napi_get_undefined(env, &result);
     } else if (asBuffer) {
-      napi_create_buffer_copy(env, s->size(), s->data(), NULL, result);
+      napi_create_buffer_copy(env, s->size(), s->data(), NULL, &result);
     } else {
-      napi_create_string_utf8(env, s->data(), s->size(), result);
+      napi_create_string_utf8(env, s->data(), s->size(), &result);
     }
   }
 
@@ -874,15 +874,15 @@ struct Iterator final : public BaseIterator {
       if (keys_ && values_) {
         leveldb::Slice k = CurrentKey();
         leveldb::Slice v = CurrentValue();
-        cache_.emplace_back(&k, &v);
+        cache_.emplace_back(k, v);
         bytesRead += k.size() + v.size();
       } else if (keys_) {
         leveldb::Slice k = CurrentKey();
-        cache_.emplace_back(&k, &empty);
+        cache_.emplace_back(k, empty);
         bytesRead += k.size();
       } else if (values_) {
         leveldb::Slice v = CurrentValue();
-        cache_.emplace_back(&empty, &v);
+        cache_.emplace_back(empty, v);
         bytesRead += v.size();
       }
 
@@ -1170,7 +1170,7 @@ struct GetWorker final : public PriorityWorker {
   void HandleOKCallback (napi_env env, napi_value callback) override {
     napi_value argv[2];
     napi_get_null(env, &argv[0]);
-    Entry::Convert(env, &value_, asBuffer_, &argv[1]);
+    Entry::Convert(env, &value_, asBuffer_, argv[1]);
     CallFunction(env, callback, 2, argv);
   }
 
@@ -1207,24 +1207,20 @@ NAPI_METHOD(db_get) {
 struct GetManyWorker final : public PriorityWorker {
   GetManyWorker (napi_env env,
                  Database* database,
-                 const std::vector<std::string>* keys,
+                 std::vector<std::string> keys,
                  napi_value callback,
                  const bool valueAsBuffer,
                  const bool fillCache)
     : PriorityWorker(env, database, callback, "classic_level.get.many"),
-      keys_(keys), valueAsBuffer_(valueAsBuffer) {
+      keys_(std::move(keys)), valueAsBuffer_(valueAsBuffer) {
       options_.fill_cache = fillCache;
       options_.snapshot = database->NewSnapshot();
     }
 
-  ~GetManyWorker() {
-    delete keys_;
-  }
-
   void DoExecute () override {
-    cache_.reserve(keys_->size());
+    cache_.reserve(keys_.size());
 
-    for (const std::string& key: *keys_) {
+    for (const std::string& key: keys_) {
       std::string* value = new std::string();
       leveldb::Status status = database_->Get(options_, key, *value);
 
@@ -1254,7 +1250,7 @@ struct GetManyWorker final : public PriorityWorker {
     for (size_t idx = 0; idx < size; idx++) {
       std::string* value = cache_[idx];
       napi_value element;
-      Entry::Convert(env, value, valueAsBuffer_, &element);
+      Entry::Convert(env, value, valueAsBuffer_, element);
       napi_set_element(env, array, static_cast<uint32_t>(idx), element);
       if (value != NULL) delete value;
     }
@@ -1267,7 +1263,7 @@ struct GetManyWorker final : public PriorityWorker {
 
 private:
   leveldb::ReadOptions options_;
-  const std::vector<std::string>* keys_;
+  const std::vector<std::string> keys_;
   const bool valueAsBuffer_;
   std::vector<std::string*> cache_;
 };
@@ -1279,7 +1275,7 @@ NAPI_METHOD(db_get_many) {
   NAPI_ARGV(4);
   NAPI_DB_CONTEXT();
 
-  const std::vector<std::string>* keys = KeyArray(env, argv[1]);
+  const auto keys = KeyArray(env, argv[1]);
   napi_value options = argv[2];
   const bool asBuffer = EncodingIsBuffer(env, options, "valueEncoding");
   const bool fillCache = BooleanProperty(env, options, "fillCache", true);
@@ -1766,7 +1762,7 @@ struct NextWorker final : public BaseWorker {
 
     for (uint32_t idx = 0; idx < size; idx++) {
       napi_value element;
-      iterator_->cache_[idx].ConvertByMode(env, Mode::entries, kab, vab, &element);
+      iterator_->cache_[idx].ConvertByMode(env, Mode::entries, kab, vab, element);
       napi_set_element(env, jsArray, idx, element);
     }
 
