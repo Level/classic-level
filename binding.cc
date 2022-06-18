@@ -344,10 +344,7 @@ struct Entry {
   static void Convert (napi_env env, const std::string* s, const Encoding encoding, napi_value& result) {
     if (s == NULL) {
       napi_get_undefined(env, &result);
-    } else if (encoding == Encoding::buffer) {
-      napi_create_buffer_copy(env, s->size(), s->data(), NULL, &result);
-    } else if (encoding == Encoding::view) {
-      // TODO: use napi_create_typedarray if performance is equal or better
+    } else if (encoding == Encoding::buffer || encoding == Encoding::view) {
       napi_create_buffer_copy(env, s->size(), s->data(), NULL, &result);
     } else {
       napi_create_string_utf8(env, s->data(), s->size(), &result);
