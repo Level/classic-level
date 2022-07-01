@@ -777,12 +777,6 @@ struct BaseIterator {
   }
 
   bool OutOfRange (const leveldb::Slice& target) const {
-    // TODO: benchmark to see if this is worth it
-    // if (upperBoundOnly && !reverse_) {
-    //   return ((lt_  != NULL && target.compare(*lt_) >= 0) ||
-    //           (lte_ != NULL && target.compare(*lte_) > 0));
-    // }
-
     // The lte and gte options take precedence over lt and gt respectively
     if (lte_ != NULL) {
       if (target.compare(*lte_) > 0) return true;
