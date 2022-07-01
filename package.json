@@ -33,7 +33,7 @@
     "node-gyp-build": "^4.3.0"
   },
   "devDependencies": {
-    "@types/node": "^17.0.16",
+    "@types/node": "^18.0.0",
     "@voxpelli/tsconfig": "^4.0.0",
     "async-each": "^1.0.3",
     "cross-env": "^7.0.3",
