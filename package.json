@@ -26,8 +26,7 @@
     "prebuild-win32-x64": "prebuildify -t 8.14.0 --napi --strip"
   },
   "dependencies": {
-    "abstract-level": "^1.0.2",
-    "catering": "^2.1.0",
+    "abstract-level": "^2.0.0",
     "module-error": "^1.0.1",
     "napi-macros": "^2.2.2",
     "node-gyp-build": "^4.3.0"
