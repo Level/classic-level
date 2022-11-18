@@ -56,7 +56,12 @@ class ClassicLevel extends AbstractLevel {
   }
 
   async _get (key, options) {
-    return binding.db_get(this[kContext], key, options)
+    return binding.db_get(
+      this[kContext],
+      key,
+      encodingEnum(options.valueEncoding),
+      options.fillCache
+    )
   }
 
   async _getMany (keys, options) {
@@ -162,3 +167,12 @@ class ClassicLevel extends AbstractLevel {
 }
 
 exports.ClassicLevel = ClassicLevel
+
+// It's faster to read options in JS than to pass options objects to C++.
+const encodingEnum = function (encoding) {
+  if (encoding === 'buffer') return 0
+  if (encoding === 'utf8') return 1
+
+  /* istanbul ignore else: should not happen */
+  if (encoding === 'view') return 2
+}
