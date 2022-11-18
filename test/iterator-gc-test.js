@@ -14,50 +14,37 @@ for (let i = 0; i < 1e3; i++) {
 
 // When you have a database open with an active iterator, but no references to
 // the db, V8 will GC the database and you'll get an failed assert from LevelDB.
-test('db without ref does not get GCed while iterating', function (t) {
-  t.plan(6)
-
+test('db without ref does not get GCed while iterating', async function (t) {
   let db = testCommon.factory()
 
-  db.open(function (err) {
-    t.ifError(err, 'no open error')
+  await db.open()
 
-    // Insert test data
-    db.batch(sourceData.slice(), function (err) {
-      t.ifError(err, 'no batch error')
+  // Insert test data
+  await db.batch(sourceData.slice())
 
-      // Set highWaterMarkBytes to 0 so that we don't preemptively fetch.
-      const it = db.iterator({ highWaterMarkBytes: 0 })
+  // Set highWaterMarkBytes to 0 so that we don't preemptively fetch.
+  const it = db.iterator({ highWaterMarkBytes: 0 })
 
-      // Remove reference
-      db = null
+  // Remove reference
+  db = null
 
-      if (global.gc) {
-        // This is the reliable way to trigger GC (and the bug if it exists).
-        // Useful for manual testing with "node --expose-gc".
-        global.gc()
-        iterate(it)
-      } else {
-        // But a timeout usually also allows GC to kick in. If not, the time
-        // between iterator ticks might. That's when "highWaterMarkBytes: 0" helps.
-        setTimeout(iterate.bind(null, it), 1000)
-      }
-    })
-  })
-
-  function iterate (it) {
-    // No reference to db here, could be GCed. It shouldn't..
-    it.all(function (err, entries) {
-      t.ifError(err, 'no iterator error')
-      t.is(entries.length, sourceData.length, 'got data')
-
-      // Because we also have a reference on the iterator. That's the fix.
-      t.ok(it.db, 'abstract iterator has reference to db')
-
-      // Which as luck would have it, also allows us to properly end this test.
-      it.db.close(function (err) {
-        t.ifError(err, 'no close error')
-      })
-    })
+  if (global.gc) {
+    // This is the reliable way to trigger GC (and the bug if it exists).
+    // Useful for manual testing with "node --expose-gc".
+    global.gc()
+  } else {
+    // But a timeout usually also allows GC to kick in. If not, the time
+    // between iterator ticks might. That's when "highWaterMarkBytes: 0" helps.
+    await new Promise(resolve => setTimeout(resolve, 1e3))
   }
+
+  // No reference to db here, could be GCed. It shouldn't..
+  const entries = await it.all()
+  t.is(entries.length, sourceData.length, 'got data')
+
+  // Because we also have a reference on the iterator. That's the fix.
+  t.ok(it.db, 'abstract iterator has reference to db')
+
+  // Which as luck would have it, also allows us to properly end this test.
+  return it.db.close()
 })

@@ -35,9 +35,7 @@
   "devDependencies": {
     "@types/node": "^18.0.0",
     "@voxpelli/tsconfig": "^4.0.0",
-    "async-each": "^1.0.3",
     "cross-env": "^7.0.3",
-    "delayed": "^2.0.0",
     "dependency-check": "^4.1.0",
     "du": "^1.0.0",
     "electron": "^21.0.1",

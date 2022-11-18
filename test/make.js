@@ -4,32 +4,17 @@ const test = require('tape')
 const testCommon = require('./common')
 
 function makeTest (name, testFn) {
-  test(name, function (t) {
+  test(name, async function (t) {
     const db = testCommon.factory()
-    const done = function (err, close) {
-      t.ifError(err, 'no error from done()')
 
-      if (close === false) {
-        t.end()
-        return
-      }
+    await db.open()
+    await db.batch([
+      { type: 'put', key: 'a', value: '1' },
+      { type: 'put', key: 'b', value: '2' },
+      { type: 'put', key: 'c', value: '3' }
+    ])
 
-      db.close(function (err) {
-        t.ifError(err, 'no error from close()')
-        t.end()
-      })
-    }
-    db.open(function (err) {
-      t.ifError(err, 'no error from open()')
-      db.batch([
-        { type: 'put', key: 'one', value: '1' },
-        { type: 'put', key: 'two', value: '2' },
-        { type: 'put', key: 'three', value: '3' }
-      ], function (err) {
-        t.ifError(err, 'no error from batch()')
-        testFn(db, t, done)
-      })
-    })
+    return testFn(db, t)
   })
 }
 

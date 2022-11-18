@@ -7,43 +7,45 @@ const crypto = require('crypto')
 
 let putCount = 0
 let getCount = 0
-let rssBase
+let iterations = 0
 
-function run () {
-  let key = 'long key to test memory usage ' + String(Math.floor(Math.random() * 10000000))
+async function main () {
+  const db = testCommon.factory()
+  await db.open()
 
-  if (BUFFERS) key = Buffer.from(key)
+  const rssBase = process.memoryUsage().rss
 
-  db.get(key, function (err, value) {
-    getCount++
+  while (true) {
+    let testKey = 'long key to test memory usage ' + String(Math.floor(Math.random() * 10000000))
+    let testValue = crypto.randomBytes(1024)
 
-    if (err) {
-      let putValue = crypto.randomBytes(1024)
-      if (!BUFFERS) putValue = putValue.toString('hex')
-
-      return db.put(key, putValue, function () {
-        putCount++
-        process.nextTick(run)
-      })
+    if (BUFFERS) {
+      testKey = Buffer.from(testKey, 'utf8')
+    } else {
+      testValue = testValue.toString('hex')
     }
 
-    process.nextTick(run)
-  })
+    const value = await db.get(testKey, { fillCache: false })
 
-  if (getCount % 1000 === 0) {
-    if (typeof global.gc !== 'undefined') global.gc()
-    console.log('getCount =', getCount, ', putCount = ', putCount, ', rss =',
-      Math.round(process.memoryUsage().rss / rssBase * 100) + '%',
-      Math.round(process.memoryUsage().rss / 1024 / 1024) + 'M',
-      JSON.stringify([0, 1, 2, 3, 4, 5, 6].map(function (l) {
-        return db.getProperty('leveldb.num-files-at-level' + l)
-      })))
+    if (value === undefined) {
+      await db.put(testKey, testValue)
+      putCount++
+    } else {
+      getCount++
+    }
+
+    if (iterations++ % 5e3 === 0) {
+      if (typeof global.gc !== 'undefined') global.gc()
+
+      console.log('getCount =', getCount, ', putCount = ', putCount, ', rss =',
+        Math.round(process.memoryUsage().rss / rssBase * 100) + '%',
+        Math.round(process.memoryUsage().rss / 1024 / 1024) + 'M'
+      )
+    }
   }
 }
 
-const db = testCommon.factory()
-
-db.open(function () {
-  rssBase = process.memoryUsage().rss
-  run()
+main().catch(function (err) {
+  console.error(err)
+  process.exit(1)
 })
