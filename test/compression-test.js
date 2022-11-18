@@ -1,8 +1,6 @@
 'use strict'
 
-const each = require('async-each')
 const du = require('du')
-const delayed = require('delayed')
 const testCommon = require('./common')
 const { ClassicLevel } = require('..')
 const test = require('tape')
@@ -15,73 +13,82 @@ const multiples = 10
 const dataSize = compressableData.length * multiples
 
 const verify = function (location, compression, t) {
-  du(location, function (err, size) {
-    t.error(err)
-    if (compression) {
-      t.ok(size < dataSize, 'on-disk size (' + size + ') is less than data size (' + dataSize + ')')
-    } else {
-      t.ok(size >= dataSize, 'on-disk size (' + size + ') is greater than data size (' + dataSize + ')')
-    }
-    t.end()
+  return new Promise(function (resolve, reject) {
+    du(location, function (err, size) {
+      if (err) return reject(err)
+
+      if (compression) {
+        t.ok(size < dataSize, 'on-disk size (' + size + ') is less than data size (' + dataSize + ')')
+      } else {
+        t.ok(size >= dataSize, 'on-disk size (' + size + ') is greater than data size (' + dataSize + ')')
+      }
+
+      resolve()
+    })
   })
 }
 
 // close, open, close again.. 'compaction' is also performed on open()s
-const cycle = function (db, compression, t, callback) {
+const cycle = async function (db, compression) {
   const location = db.location
-  db.close(function (err) {
-    t.error(err)
-    db = new ClassicLevel(location)
-    db.open({ errorIfExists: false, compression }, function () {
-      t.error(err)
-      db.close(function (err) {
-        t.error(err)
-        callback()
-      })
-    })
-  })
+  await db.close()
+  db = new ClassicLevel(location)
+  await db.open({ errorIfExists: false, compression })
+  return db.close()
 }
 
 test('compression', function (t) {
-  t.plan(3)
+  t.plan(4)
 
-  t.test('test data is compressed by default (db.put())', function (t) {
+  t.test('data is compressed by default (db.put())', async function (t) {
     const db = testCommon.factory()
-    db.open(function (err) {
-      t.error(err)
-      each(
-        Array.apply(null, Array(multiples)).map(function (e, i) {
-          return [i, compressableData]
-        }), function (args, callback) {
-          db.put.apply(db, args.concat([callback]))
-        }, cycle.bind(null, db, true, t, delayed.delayed(verify.bind(null, db.location, true, t), 0.01))
-      )
+    await db.open()
+
+    const promises = Array.apply(null, Array(multiples)).map(function (e, i) {
+      return db.put(String(i), compressableData)
     })
+
+    await Promise.all(promises)
+    await cycle(db, true)
+    await verify(db.location, true, t)
   })
 
-  t.test('test data is not compressed with compression=false on open() (db.put())', function (t) {
+  t.test('data is not compressed with compression=false on open() (db.put())', async function (t) {
     const db = testCommon.factory()
-    db.open({ compression: false }, function (err) {
-      t.error(err)
-      each(
-        Array.apply(null, Array(multiples)).map(function (e, i) {
-          return [i, compressableData]
-        }), function (args, callback) {
-          db.put.apply(db, args.concat([callback]))
-        }, cycle.bind(null, db, false, t, delayed.delayed(verify.bind(null, db.location, false, t), 0.01))
-      )
+    await db.open({ compression: false })
+
+    const promises = Array.apply(null, Array(multiples)).map(function (e, i) {
+      return db.put(String(i), compressableData)
     })
+
+    await Promise.all(promises)
+    await cycle(db, false)
+    await verify(db.location, false, t)
   })
 
-  t.test('test data is compressed by default (db.batch())', function (t) {
+  t.test('data is compressed by default (db.batch())', async function (t) {
     const db = testCommon.factory()
-    db.open(function (err) {
-      t.error(err)
-      db.batch(
-        Array.apply(null, Array(multiples)).map(function (e, i) {
-          return { type: 'put', key: i, value: compressableData }
-        }), cycle.bind(null, db, true, t, delayed.delayed(verify.bind(null, db.location, true, t), 0.01))
-      )
+    await db.open()
+
+    const operations = Array.apply(null, Array(multiples)).map(function (e, i) {
+      return { type: 'put', key: String(i), value: compressableData }
     })
+
+    await db.batch(operations)
+    await cycle(db, true)
+    await verify(db.location, true, t)
+  })
+
+  t.test('data is not compressed with compression=false on factory (db.batch())', async function (t) {
+    const db = testCommon.factory({ compression: false })
+    await db.open()
+
+    const operations = Array.apply(null, Array(multiples)).map(function (e, i) {
+      return { type: 'put', key: String(i), value: compressableData }
+    })
+
+    await db.batch(operations)
+    await cycle(db, false)
+    await verify(db.location, false, t)
   })
 })

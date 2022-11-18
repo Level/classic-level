@@ -18,7 +18,6 @@
  */
 struct Database;
 struct Iterator;
-static void iterator_close_do (napi_env env, Iterator* iterator, napi_value cb);
 static leveldb::Status threadsafe_open(const leveldb::Options &options,
                                        bool multithreading,
                                        Database &db_instance);
@@ -55,6 +54,11 @@ static std::map<std::string, LevelDbHandle> db_handles;
 
 #define NAPI_RETURN_UNDEFINED() \
   return 0;
+
+#define NAPI_PROMISE() \
+  napi_deferred deferred; \
+  napi_value promise; \
+  NAPI_STATUS_THROWS(napi_create_promise(env, &deferred, &promise));
 
 #define NAPI_UTF8_NEW(name, val)                \
   size_t name##_size = 0;                                               \
@@ -93,6 +97,11 @@ static std::map<std::string, LevelDbHandle> db_handles;
       memcpy(to##Ch_, buf, to##Sz_);                                    \
     }                                                                   \
   }
+
+/**
+ * Bit fields.
+ */
+#define STATE_ENDED 1
 
 /*********************************************************************
  * Helpers.
@@ -312,18 +321,6 @@ static std::vector<std::string> KeyArray (napi_env env, napi_value arr) {
 }
 
 /**
- * Calls a function.
- */
-static napi_status CallFunction (napi_env env,
-                                 napi_value callback,
-                                 const int argc,
-                                 napi_value* argv) {
-  napi_value global;
-  napi_get_global(env, &global);
-  return napi_call_function(env, global, callback, argc, argv, NULL);
-}
-
-/**
  * Whether to yield entries, keys or values.
  */
 enum Mode {
@@ -379,23 +376,26 @@ private:
  * following virtual methods (listed in the order in which they're called):
  *
  * - DoExecute (abstract, worker pool thread): main work
- * - HandleOKCallback (main thread): call JS callback on success
- * - HandleErrorCallback (main thread): call JS callback on error
+ * - HandleOKCallback (main thread): resolve JS promise on success
+ * - HandleErrorCallback (main thread): reject JS promise on error
  * - DoFinally (main thread): do cleanup regardless of success
  */
 struct BaseWorker {
   // Note: storing env is discouraged as we'd end up using it in unsafe places.
   BaseWorker (napi_env env,
               Database* database,
-              napi_value callback,
+              napi_deferred deferred,
               const char* resourceName)
-    : database_(database), errMsg_(NULL) {
-    NAPI_STATUS_THROWS_VOID(napi_create_reference(env, callback, 1, &callbackRef_));
+    : database_(database), errMsg_(NULL), deferred_(deferred) {
+    // Note: napi_deferred is a strong reference to the JS promise, so there's no need to
+    // create a reference ourselves. See `v8_deferred = new v8::Persistent<v8::Value>()` in:
+    // https://github.com/nodejs/node/commit/7efb8f7619100973877c660d0ee527ea3d92de8d
+
     napi_value asyncResourceName;
     NAPI_STATUS_THROWS_VOID(napi_create_string_utf8(env, resourceName,
                                                NAPI_AUTO_LENGTH,
                                                &asyncResourceName));
-    NAPI_STATUS_THROWS_VOID(napi_create_async_work(env, callback,
+    NAPI_STATUS_THROWS_VOID(napi_create_async_work(env, NULL,
                                               asyncResourceName,
                                               BaseWorker::Execute,
                                               BaseWorker::Complete,
@@ -440,28 +440,29 @@ struct BaseWorker {
   }
 
   void DoComplete (napi_env env) {
-    napi_value callback;
-    napi_get_reference_value(env, callbackRef_, &callback);
-
     if (status_.ok()) {
-      HandleOKCallback(env, callback);
+      HandleOKCallback(env, deferred_);
     } else {
-      HandleErrorCallback(env, callback);
+      HandleErrorCallback(env, deferred_);
     }
   }
 
-  virtual void HandleOKCallback (napi_env env, napi_value callback) {
+  virtual void HandleOKCallback (napi_env env, napi_deferred deferred) {
     napi_value argv;
-    napi_get_null(env, &argv);
-    CallFunction(env, callback, 1, &argv);
+    napi_get_undefined(env, &argv);
+    napi_resolve_deferred(env, deferred, argv);
   }
 
-  virtual void HandleErrorCallback (napi_env env, napi_value callback) {
+  virtual void HandleErrorCallback (napi_env env, napi_deferred deferred) {
     napi_value argv;
 
     if (status_.IsNotFound()) {
-      argv = CreateCodeError(env, "LEVEL_NOT_FOUND", errMsg_);
-    } else if (status_.IsCorruption()) {
+      napi_get_undefined(env, &argv);
+      napi_resolve_deferred(env, deferred, argv);
+      return;
+    }
+
+    if (status_.IsCorruption()) {
       argv = CreateCodeError(env, "LEVEL_CORRUPTION", errMsg_);
     } else if (status_.IsIOError()) {
       if (strlen(errMsg_) > 15 && strncmp("IO error: lock ", errMsg_, 15) == 0) { // env_posix.cc
@@ -475,13 +476,12 @@ struct BaseWorker {
       argv = CreateError(env, errMsg_);
     }
 
-    CallFunction(env, callback, 1, &argv);
+    napi_reject_deferred(env, deferred, argv);
   }
 
   virtual void DoFinally (napi_env env) {
-    napi_delete_reference(env, callbackRef_);
     napi_delete_async_work(env, asyncWork_);
-
+    deferred_ = NULL;
     delete this;
   }
 
@@ -492,7 +492,7 @@ struct BaseWorker {
   Database* database_;
 
 private:
-  napi_ref callbackRef_;
+  napi_deferred deferred_;
   napi_async_work asyncWork_;
   leveldb::Status status_;
   char *errMsg_;
@@ -653,7 +653,7 @@ leveldb::Status threadsafe_open(const leveldb::Options &options,
       db_instance.db_ = handle.db;
       db_handles[db_instance.location_] = handle;
     }
-    
+
     return status;
   }
 
@@ -684,8 +684,8 @@ leveldb::Status threadsafe_close(Database &db_instance) {
  * Base worker class for doing async work that defers closing the database.
  */
 struct PriorityWorker : public BaseWorker {
-  PriorityWorker (napi_env env, Database* database, napi_value callback, const char* resourceName)
-    : BaseWorker(env, database, callback, resourceName) {
+  PriorityWorker (napi_env env, Database* database, napi_deferred deferred, const char* resourceName)
+    : BaseWorker(env, database, deferred, resourceName) {
       database_->IncrementPriorityWork(env);
   }
 
@@ -904,7 +904,8 @@ struct Iterator final : public BaseIterator {
             const bool fillCache,
             const Encoding keyEncoding,
             const Encoding valueEncoding,
-            const uint32_t highWaterMarkBytes)
+            const uint32_t highWaterMarkBytes,
+            unsigned char* state)
     : BaseIterator(database, reverse, lt, lte, gt, gte, limit, fillCache),
       id_(id),
       keys_(keys),
@@ -915,7 +916,9 @@ struct Iterator final : public BaseIterator {
       first_(true),
       nexting_(false),
       isClosing_(false),
+      ended_(false),
       closeWorker_(NULL),
+      state_(state),
       ref_(NULL) {
   }
 
@@ -963,6 +966,7 @@ struct Iterator final : public BaseIterator {
       }
     }
 
+    ended_ = true;
     return false;
   }
 
@@ -975,7 +979,9 @@ struct Iterator final : public BaseIterator {
   bool first_;
   bool nexting_;
   bool isClosing_;
+  bool ended_;
   BaseWorker* closeWorker_;
+  unsigned char* state_;
   std::vector<Entry> cache_;
 
 private:
@@ -1047,7 +1053,7 @@ NAPI_METHOD(db_init) {
 struct OpenWorker final : public BaseWorker {
   OpenWorker (napi_env env,
               Database* database,
-              napi_value callback,
+              napi_deferred deferred,
               const std::string& location,
               const bool createIfMissing,
               const bool errorIfExists,
@@ -1058,7 +1064,7 @@ struct OpenWorker final : public BaseWorker {
               const uint32_t maxOpenFiles,
               const uint32_t blockRestartInterval,
               const uint32_t maxFileSize)
-    : BaseWorker(env, database, callback, "classic_level.db.open"),
+    : BaseWorker(env, database, deferred, "classic_level.db.open"),
       location_(location),
       multithreading_(multithreading) {
     options_.block_cache = database->blockCache_;
@@ -1090,7 +1096,7 @@ struct OpenWorker final : public BaseWorker {
  * Open a database.
  */
 NAPI_METHOD(db_open) {
-  NAPI_ARGV(4);
+  NAPI_ARGV(3);
   NAPI_DB_CONTEXT();
   NAPI_ARGV_UTF8_NEW(location, 1);
 
@@ -1110,27 +1116,29 @@ NAPI_METHOD(db_open) {
 
   database->blockCache_ = leveldb::NewLRUCache(cacheSize);
 
-  napi_value callback = argv[3];
-  OpenWorker* worker = new OpenWorker(env, database, callback, location,
-                                      createIfMissing, errorIfExists,
-                                      compression, multithreading,
-                                      writeBufferSize, blockSize,
-                                      maxOpenFiles, blockRestartInterval,
-                                      maxFileSize);
+  NAPI_PROMISE();
+
+  OpenWorker* worker = new OpenWorker(
+    env, database, deferred, location,
+    createIfMissing, errorIfExists,
+    compression, multithreading,
+    writeBufferSize, blockSize,
+    maxOpenFiles, blockRestartInterval,
+    maxFileSize
+  );
+
   worker->Queue(env);
   delete [] location;
 
-  NAPI_RETURN_UNDEFINED();
+  return promise;
 }
 
 /**
  * Worker class for closing a database
  */
 struct CloseWorker final : public BaseWorker {
-  CloseWorker (napi_env env,
-               Database* database,
-               napi_value callback)
-    : BaseWorker(env, database, callback, "classic_level.db.close") {}
+  CloseWorker (napi_env env, Database* database, napi_deferred deferred)
+    : BaseWorker(env, database, deferred, "classic_level.db.close") {}
 
   ~CloseWorker () {}
 
@@ -1147,30 +1155,43 @@ napi_value noop_callback (napi_env env, napi_callback_info info) {
  * Close a database.
  */
 NAPI_METHOD(db_close) {
-  NAPI_ARGV(2);
+  NAPI_ARGV(1);
   NAPI_DB_CONTEXT();
+  NAPI_PROMISE();
 
-  napi_value callback = argv[1];
-  CloseWorker* worker = new CloseWorker(env, database, callback);
+  CloseWorker* worker = new CloseWorker(env, database, deferred);
 
   if (!database->HasPriorityWork()) {
     worker->Queue(env);
-    NAPI_RETURN_UNDEFINED();
+    return promise;
   }
 
   database->pendingCloseWorker_ = worker;
-
-  napi_value noop;
-  napi_create_function(env, NULL, 0, noop_callback, NULL, &noop);
 
   std::map<uint32_t, Iterator*> iterators = database->iterators_;
   std::map<uint32_t, Iterator*>::iterator it;
 
   for (it = iterators.begin(); it != iterators.end(); ++it) {
-    iterator_close_do(env, it->second, noop);
+    Iterator* iterator = it->second;
+
+    // TODO (v2): should no longer be necessary? Also not in abstract-level v1. But
+    // if it is, then find a cleaner solution than creating a whole bunch of throwaway promises.
+    if (!iterator->isClosing_ && !iterator->hasClosed_) {
+      // napi_value iteratorPromise;
+      // napi_deferred iteratorDeferred;
+      // NAPI_STATUS_THROWS(napi_create_promise(env, &iteratorDeferred, &iteratorPromise));
+      // CloseIteratorWorker* worker = new CloseIteratorWorker(env, iterator, iteratorPromise, iteratorDeferred);
+      // iterator->isClosing_ = true;
+      //
+      // if (iterator->nexting_) {
+      //   iterator->closeWorker_ = worker;
+      // } else {
+      //   worker->Queue(env);
+      // }
+    }
   }
 
-  NAPI_RETURN_UNDEFINED();
+  return promise;
 }
 
 /**
@@ -1179,11 +1200,11 @@ NAPI_METHOD(db_close) {
 struct PutWorker final : public PriorityWorker {
   PutWorker (napi_env env,
              Database* database,
-             napi_value callback,
+             napi_deferred deferred,
              leveldb::Slice key,
              leveldb::Slice value,
              bool sync)
-    : PriorityWorker(env, database, callback, "classic_level.db.put"),
+    : PriorityWorker(env, database, deferred, "classic_level.db.put"),
       key_(key), value_(value) {
     options_.sync = sync;
   }
@@ -1206,18 +1227,18 @@ struct PutWorker final : public PriorityWorker {
  * Puts a key and a value to a database.
  */
 NAPI_METHOD(db_put) {
-  NAPI_ARGV(5);
+  NAPI_ARGV(4);
   NAPI_DB_CONTEXT();
+  NAPI_PROMISE();
 
   leveldb::Slice key = ToSlice(env, argv[1]);
   leveldb::Slice value = ToSlice(env, argv[2]);
   bool sync = BooleanProperty(env, argv[3], "sync", false);
-  napi_value callback = argv[4];
 
-  PutWorker* worker = new PutWorker(env, database, callback, key, value, sync);
+  PutWorker* worker = new PutWorker(env, database, deferred, key, value, sync);
   worker->Queue(env);
 
-  NAPI_RETURN_UNDEFINED();
+  return promise;
 }
 
 /**
@@ -1226,11 +1247,11 @@ NAPI_METHOD(db_put) {
 struct GetWorker final : public PriorityWorker {
   GetWorker (napi_env env,
              Database* database,
-             napi_value callback,
+             napi_deferred deferred,
              leveldb::Slice key,
              const Encoding encoding,
              const bool fillCache)
-    : PriorityWorker(env, database, callback, "classic_level.db.get"),
+    : PriorityWorker(env, database, deferred, "classic_level.db.get"),
       key_(key),
       encoding_(encoding) {
     options_.fill_cache = fillCache;
@@ -1244,11 +1265,10 @@ struct GetWorker final : public PriorityWorker {
     SetStatus(database_->Get(options_, key_, value_));
   }
 
-  void HandleOKCallback (napi_env env, napi_value callback) override {
-    napi_value argv[2];
-    napi_get_null(env, &argv[0]);
-    Entry::Convert(env, &value_, encoding_, argv[1]);
-    CallFunction(env, callback, 2, argv);
+  void HandleOKCallback (napi_env env, napi_deferred deferred) override {
+    napi_value argv;
+    Entry::Convert(env, &value_, encoding_, argv);
+    napi_resolve_deferred(env, deferred, argv);
   }
 
 private:
@@ -1262,20 +1282,21 @@ private:
  * Gets a value from a database.
  */
 NAPI_METHOD(db_get) {
-  NAPI_ARGV(4);
+  NAPI_ARGV(3);
   NAPI_DB_CONTEXT();
+  NAPI_PROMISE();
 
   leveldb::Slice key = ToSlice(env, argv[1]);
   napi_value options = argv[2];
   const Encoding encoding = GetEncoding(env, options, "valueEncoding");
   const bool fillCache = BooleanProperty(env, options, "fillCache", true);
-  napi_value callback = argv[3];
 
-  GetWorker* worker = new GetWorker(env, database, callback, key, encoding,
-                                    fillCache);
+  GetWorker* worker = new GetWorker(
+    env, database, deferred, key, encoding, fillCache
+  );
+
   worker->Queue(env);
-
-  NAPI_RETURN_UNDEFINED();
+  return promise;
 }
 
 /**
@@ -1285,10 +1306,10 @@ struct GetManyWorker final : public PriorityWorker {
   GetManyWorker (napi_env env,
                  Database* database,
                  std::vector<std::string> keys,
-                 napi_value callback,
+                 napi_deferred deferred,
                  const Encoding valueEncoding,
                  const bool fillCache)
-    : PriorityWorker(env, database, callback, "classic_level.get.many"),
+    : PriorityWorker(env, database, deferred, "classic_level.get.many"),
       keys_(std::move(keys)), valueEncoding_(valueEncoding) {
       options_.fill_cache = fillCache;
       options_.snapshot = database->NewSnapshot();
@@ -1319,7 +1340,7 @@ struct GetManyWorker final : public PriorityWorker {
     database_->ReleaseSnapshot(options_.snapshot);
   }
 
-  void HandleOKCallback (napi_env env, napi_value callback) override {
+  void HandleOKCallback (napi_env env, napi_deferred deferred) override {
     size_t size = cache_.size();
     napi_value array;
     napi_create_array_with_length(env, size, &array);
@@ -1332,10 +1353,7 @@ struct GetManyWorker final : public PriorityWorker {
       if (value != NULL) delete value;
     }
 
-    napi_value argv[2];
-    napi_get_null(env, &argv[0]);
-    argv[1] = array;
-    CallFunction(env, callback, 2, argv);
+    napi_resolve_deferred(env, deferred, array);
   }
 
 private:
@@ -1349,21 +1367,21 @@ private:
  * Gets many values from a database.
  */
 NAPI_METHOD(db_get_many) {
-  NAPI_ARGV(4);
+  NAPI_ARGV(3);
   NAPI_DB_CONTEXT();
+  NAPI_PROMISE();
 
   const auto keys = KeyArray(env, argv[1]);
   napi_value options = argv[2];
   const Encoding valueEncoding = GetEncoding(env, options, "valueEncoding");
   const bool fillCache = BooleanProperty(env, options, "fillCache", true);
-  napi_value callback = argv[3];
 
   GetManyWorker* worker = new GetManyWorker(
-    env, database, keys, callback, valueEncoding, fillCache
+    env, database, keys, deferred, valueEncoding, fillCache
   );
 
   worker->Queue(env);
-  NAPI_RETURN_UNDEFINED();
+  return promise;
 }
 
 /**
@@ -1372,10 +1390,10 @@ NAPI_METHOD(db_get_many) {
 struct DelWorker final : public PriorityWorker {
   DelWorker (napi_env env,
              Database* database,
-             napi_value callback,
+             napi_deferred deferred,
              leveldb::Slice key,
              bool sync)
-    : PriorityWorker(env, database, callback, "classic_level.db.del"),
+    : PriorityWorker(env, database, deferred, "classic_level.db.del"),
       key_(key) {
     options_.sync = sync;
   }
@@ -1396,17 +1414,17 @@ struct DelWorker final : public PriorityWorker {
  * Delete a value from a database.
  */
 NAPI_METHOD(db_del) {
-  NAPI_ARGV(4);
+  NAPI_ARGV(3);
   NAPI_DB_CONTEXT();
+  NAPI_PROMISE();
 
   leveldb::Slice key = ToSlice(env, argv[1]);
   bool sync = BooleanProperty(env, argv[2], "sync", false);
-  napi_value callback = argv[3];
 
-  DelWorker* worker = new DelWorker(env, database, callback, key, sync);
+  DelWorker* worker = new DelWorker(env, database, deferred, key, sync);
   worker->Queue(env);
 
-  NAPI_RETURN_UNDEFINED();
+  return promise;
 }
 
 /**
@@ -1415,14 +1433,14 @@ NAPI_METHOD(db_del) {
 struct ClearWorker final : public PriorityWorker {
   ClearWorker (napi_env env,
                Database* database,
-               napi_value callback,
+               napi_deferred deferred,
                const bool reverse,
                const int limit,
                std::string* lt,
                std::string* lte,
                std::string* gt,
                std::string* gte)
-    : PriorityWorker(env, database, callback, "classic_level.db.clear") {
+    : PriorityWorker(env, database, deferred, "classic_level.db.clear") {
     iterator_ = new BaseIterator(database, reverse, lt, lte, gt, gte, limit, false);
     writeOptions_ = new leveldb::WriteOptions();
     writeOptions_->sync = false;
@@ -1473,11 +1491,11 @@ private:
  * Delete a range from a database.
  */
 NAPI_METHOD(db_clear) {
-  NAPI_ARGV(3);
+  NAPI_ARGV(2);
   NAPI_DB_CONTEXT();
+  NAPI_PROMISE();
 
   napi_value options = argv[1];
-  napi_value callback = argv[2];
 
   const bool reverse = BooleanProperty(env, options, "reverse", false);
   const int limit = Int32Property(env, options, "limit", -1);
@@ -1487,10 +1505,12 @@ NAPI_METHOD(db_clear) {
   std::string* gt = RangeOption(env, options, "gt");
   std::string* gte = RangeOption(env, options, "gte");
 
-  ClearWorker* worker = new ClearWorker(env, database, callback, reverse, limit, lt, lte, gt, gte);
-  worker->Queue(env);
+  ClearWorker* worker = new ClearWorker(
+    env, database, deferred, reverse, limit, lt, lte, gt, gte
+  );
 
-  NAPI_RETURN_UNDEFINED();
+  worker->Queue(env);
+  return promise;
 }
 
 /**
@@ -1499,10 +1519,10 @@ NAPI_METHOD(db_clear) {
 struct ApproximateSizeWorker final : public PriorityWorker {
   ApproximateSizeWorker (napi_env env,
                          Database* database,
-                         napi_value callback,
+                         napi_deferred deferred,
                          leveldb::Slice start,
                          leveldb::Slice end)
-    : PriorityWorker(env, database, callback, "classic_level.db.approximate_size"),
+    : PriorityWorker(env, database, deferred, "classic_level.db.approximate_size"),
       start_(start), end_(end) {}
 
   ~ApproximateSizeWorker () {
@@ -1515,11 +1535,10 @@ struct ApproximateSizeWorker final : public PriorityWorker {
     size_ = database_->ApproximateSize(&range);
   }
 
-  void HandleOKCallback (napi_env env, napi_value callback) override {
-    napi_value argv[2];
-    napi_get_null(env, &argv[0]);
-    napi_create_int64(env, (uint64_t)size_, &argv[1]);
-    CallFunction(env, callback, 2, argv);
+  void HandleOKCallback (napi_env env, napi_deferred deferred) override {
+    napi_value argv;
+    napi_create_int64(env, (uint64_t)size_, &argv);
+    napi_resolve_deferred(env, deferred, argv);
   }
 
   leveldb::Slice start_;
@@ -1531,20 +1550,19 @@ struct ApproximateSizeWorker final : public PriorityWorker {
  * Calculates the approximate size of a range in a database.
  */
 NAPI_METHOD(db_approximate_size) {
-  NAPI_ARGV(4);
+  NAPI_ARGV(3);
   NAPI_DB_CONTEXT();
+  NAPI_PROMISE();
 
   leveldb::Slice start = ToSlice(env, argv[1]);
   leveldb::Slice end = ToSlice(env, argv[2]);
 
-  napi_value callback = argv[3];
+  ApproximateSizeWorker* worker = new ApproximateSizeWorker(
+    env, database, deferred, start, end
+  );
 
-  ApproximateSizeWorker* worker  = new ApproximateSizeWorker(env, database,
-                                                             callback, start,
-                                                             end);
   worker->Queue(env);
-
-  NAPI_RETURN_UNDEFINED();
+  return promise;
 }
 
 /**
@@ -1553,10 +1571,10 @@ NAPI_METHOD(db_approximate_size) {
 struct CompactRangeWorker final : public PriorityWorker {
   CompactRangeWorker (napi_env env,
                       Database* database,
-                      napi_value callback,
+                      napi_deferred deferred,
                       leveldb::Slice start,
                       leveldb::Slice end)
-    : PriorityWorker(env, database, callback, "classic_level.db.compact_range"),
+    : PriorityWorker(env, database, deferred, "classic_level.db.compact_range"),
       start_(start), end_(end) {}
 
   ~CompactRangeWorker () {
@@ -1576,18 +1594,19 @@ struct CompactRangeWorker final : public PriorityWorker {
  * Compacts a range in a database.
  */
 NAPI_METHOD(db_compact_range) {
-  NAPI_ARGV(4);
+  NAPI_ARGV(3);
   NAPI_DB_CONTEXT();
+  NAPI_PROMISE();
 
   leveldb::Slice start = ToSlice(env, argv[1]);
   leveldb::Slice end = ToSlice(env, argv[2]);
-  napi_value callback = argv[3];
 
-  CompactRangeWorker* worker  = new CompactRangeWorker(env, database, callback,
-                                                       start, end);
+  CompactRangeWorker* worker = new CompactRangeWorker(
+    env, database, deferred, start, end
+  );
+
   worker->Queue(env);
-
-  NAPI_RETURN_UNDEFINED();
+  return promise;
 }
 
 /**
@@ -1614,10 +1633,8 @@ NAPI_METHOD(db_get_property) {
  * Worker class for destroying a database.
  */
 struct DestroyWorker final : public BaseWorker {
-  DestroyWorker (napi_env env,
-                 const std::string& location,
-                 napi_value callback)
-    : BaseWorker(env, NULL, callback, "classic_level.destroy_db"),
+  DestroyWorker (napi_env env, const std::string& location, napi_deferred deferred)
+    : BaseWorker(env, NULL, deferred, "classic_level.destroy_db"),
       location_(location) {}
 
   ~DestroyWorker () {}
@@ -1634,26 +1651,23 @@ struct DestroyWorker final : public BaseWorker {
  * Destroys a database.
  */
 NAPI_METHOD(destroy_db) {
-  NAPI_ARGV(2);
+  NAPI_ARGV(1);
   NAPI_ARGV_UTF8_NEW(location, 0);
-  napi_value callback = argv[1];
+  NAPI_PROMISE();
 
-  DestroyWorker* worker = new DestroyWorker(env, location, callback);
+  DestroyWorker* worker = new DestroyWorker(env, location, deferred);
   worker->Queue(env);
 
   delete [] location;
-
-  NAPI_RETURN_UNDEFINED();
+  return promise;
 }
 
 /**
  * Worker class for repairing a database.
  */
 struct RepairWorker final : public BaseWorker {
-  RepairWorker (napi_env env,
-                const std::string& location,
-                napi_value callback)
-    : BaseWorker(env, NULL, callback, "classic_level.repair_db"),
+  RepairWorker (napi_env env, const std::string& location, napi_deferred deferred)
+    : BaseWorker(env, NULL, deferred, "classic_level.repair_db"),
       location_(location) {}
 
   ~RepairWorker () {}
@@ -1670,16 +1684,16 @@ struct RepairWorker final : public BaseWorker {
  * Repairs a database.
  */
 NAPI_METHOD(repair_db) {
-  NAPI_ARGV(2);
+  NAPI_ARGV(1);
   NAPI_ARGV_UTF8_NEW(location, 0);
-  napi_value callback = argv[1];
+  NAPI_PROMISE();
 
-  RepairWorker* worker = new RepairWorker(env, location, callback);
+  RepairWorker* worker = new RepairWorker(env, location, deferred);
   worker->Queue(env);
 
   delete [] location;
 
-  NAPI_RETURN_UNDEFINED();
+  return promise;
 }
 
 /**
@@ -1695,10 +1709,15 @@ static void FinalizeIterator (napi_env env, void* data, void* hint) {
  * Create an iterator.
  */
 NAPI_METHOD(iterator_init) {
-  NAPI_ARGV(2);
+  NAPI_ARGV(3);
   NAPI_DB_CONTEXT();
 
-  napi_value options = argv[1];
+  unsigned char* state = 0;
+  size_t stateLength;
+  NAPI_STATUS_THROWS(napi_get_typedarray_info(env, argv[1], NULL, &stateLength, (void**)&state, NULL, NULL));
+  assert(stateLength == 1);
+
+  napi_value options = argv[2];
   const bool reverse = BooleanProperty(env, options, "reverse", false);
   const bool keys = BooleanProperty(env, options, "keys", true);
   const bool values = BooleanProperty(env, options, "values", true);
@@ -1716,7 +1735,8 @@ NAPI_METHOD(iterator_init) {
   const uint32_t id = database->currentIteratorId_++;
   Iterator* iterator = new Iterator(database, id, reverse, keys,
                                     values, limit, lt, lte, gt, gte, fillCache,
-                                    keyEncoding, valueEncoding, highWaterMarkBytes);
+                                    keyEncoding, valueEncoding, highWaterMarkBytes,
+                                    state);
   napi_value result;
 
   NAPI_STATUS_THROWS(napi_create_external(env, iterator,
@@ -1743,6 +1763,7 @@ NAPI_METHOD(iterator_seek) {
 
   leveldb::Slice target = ToSlice(env, argv[1]);
   iterator->first_ = true;
+  iterator->ended_ = false;
   iterator->Seek(target);
 
   DisposeSliceBuffer(target);
@@ -1753,10 +1774,8 @@ NAPI_METHOD(iterator_seek) {
  * Worker class for closing an iterator
  */
 struct CloseIteratorWorker final : public BaseWorker {
-  CloseIteratorWorker (napi_env env,
-             Iterator* iterator,
-             napi_value callback)
-    : BaseWorker(env, iterator->database_, callback, "classic_level.iterator.close"),
+  CloseIteratorWorker (napi_env env, Iterator* iterator, napi_deferred deferred)
+    : BaseWorker(env, iterator->database_, deferred, "classic_level.iterator.close"),
       iterator_(iterator) {}
 
   ~CloseIteratorWorker () {}
@@ -1775,12 +1794,15 @@ private:
 };
 
 /**
- * Called by NAPI_METHOD(iterator_close) and also when closing
- * open iterators during NAPI_METHOD(db_close).
+ * Closes an iterator.
  */
-static void iterator_close_do (napi_env env, Iterator* iterator, napi_value cb) {
+NAPI_METHOD(iterator_close) {
+  NAPI_ARGV(1);
+  NAPI_ITERATOR_CONTEXT();
+  NAPI_PROMISE();
+
   if (!iterator->isClosing_ && !iterator->hasClosed_) {
-    CloseIteratorWorker* worker = new CloseIteratorWorker(env, iterator, cb);
+    CloseIteratorWorker* worker = new CloseIteratorWorker(env, iterator, deferred);
     iterator->isClosing_ = true;
 
     if (iterator->nexting_) {
@@ -1788,31 +1810,21 @@ static void iterator_close_do (napi_env env, Iterator* iterator, napi_value cb) 
     } else {
       worker->Queue(env);
     }
+  } else {
+    // TODO (v2): I think we can remove the isClosing_ checks
+    napi_value argv = CreateCodeError(env, "LEVEL_XYZ", "Should not happen?");
+    NAPI_STATUS_THROWS(napi_reject_deferred(env, deferred, argv));
   }
-}
 
-/**
- * Closes an iterator.
- */
-NAPI_METHOD(iterator_close) {
-  NAPI_ARGV(2);
-  NAPI_ITERATOR_CONTEXT();
-
-  iterator_close_do(env, iterator, argv[1]);
-
-  NAPI_RETURN_UNDEFINED();
+  return promise;
 }
 
 /**
  * Worker class for nexting an iterator.
  */
 struct NextWorker final : public BaseWorker {
-  NextWorker (napi_env env,
-              Iterator* iterator,
-              uint32_t size,
-              napi_value callback)
-    : BaseWorker(env, iterator->database_, callback,
-                 "classic_level.iterator.next"),
+  NextWorker (napi_env env, Iterator* iterator, uint32_t size, napi_deferred deferred)
+    : BaseWorker(env, iterator->database_, deferred, "classic_level.iterator.next"),
       iterator_(iterator), size_(size), ok_() {}
 
   ~NextWorker () {}
@@ -1829,7 +1841,7 @@ struct NextWorker final : public BaseWorker {
     }
   }
 
-  void HandleOKCallback (napi_env env, napi_value callback) override {
+  void HandleOKCallback (napi_env env, napi_deferred deferred) override {
     size_t size = iterator_->cache_.size();
     napi_value jsArray;
     napi_create_array_with_length(env, size, &jsArray);
@@ -1843,17 +1855,19 @@ struct NextWorker final : public BaseWorker {
       napi_set_element(env, jsArray, idx, element);
     }
 
-    napi_value argv[3];
-    napi_get_null(env, &argv[0]);
-    argv[1] = jsArray;
-    napi_get_boolean(env, !ok_, &argv[2]);
-    CallFunction(env, callback, 3, argv);
+    // TODO: use state_ internally too, replacing ended_?
+    if (iterator_->ended_) {
+      *iterator_->state_ |= STATE_ENDED;
+    }
+
+    napi_resolve_deferred(env, deferred, jsArray);
   }
 
   void DoFinally (napi_env env) override {
     // clean up & handle the next/close state
     iterator_->nexting_ = false;
 
+    // TODO (v2): check if still needed
     if (iterator_->closeWorker_ != NULL) {
       iterator_->closeWorker_->Queue(env);
       iterator_->closeWorker_ = NULL;
@@ -1872,26 +1886,29 @@ private:
  * Advance repeatedly and get multiple entries at once.
  */
 NAPI_METHOD(iterator_nextv) {
-  NAPI_ARGV(3);
+  NAPI_ARGV(2);
   NAPI_ITERATOR_CONTEXT();
+  NAPI_PROMISE();
 
   uint32_t size;
   NAPI_STATUS_THROWS(napi_get_value_uint32(env, argv[1], &size));
   if (size == 0) size = 1;
 
-  napi_value callback = argv[2];
-
   if (iterator->isClosing_ || iterator->hasClosed_) {
+    // TODO (v2): test, or remove
     napi_value argv = CreateCodeError(env, "LEVEL_ITERATOR_NOT_OPEN", "Iterator is not open");
-    NAPI_STATUS_THROWS(CallFunction(env, callback, 1, &argv));
-    NAPI_RETURN_UNDEFINED();
+    NAPI_STATUS_THROWS(napi_reject_deferred(env, deferred, argv));
+  } else if (iterator->ended_) {
+    napi_value empty;
+    napi_create_array_with_length(env, 0, &empty);
+    napi_resolve_deferred(env, deferred, empty);
+  } else {
+    NextWorker* worker = new NextWorker(env, iterator, size, deferred);
+    iterator->nexting_ = true;
+    worker->Queue(env);
   }
 
-  NextWorker* worker = new NextWorker(env, iterator, size, callback);
-  iterator->nexting_ = true;
-  worker->Queue(env);
-
-  NAPI_RETURN_UNDEFINED();
+  return promise;
 }
 
 /**
@@ -1900,11 +1917,11 @@ NAPI_METHOD(iterator_nextv) {
 struct BatchWorker final : public PriorityWorker {
   BatchWorker (napi_env env,
                Database* database,
-               napi_value callback,
+               napi_deferred deferred,
                leveldb::WriteBatch* batch,
                const bool sync,
                const bool hasData)
-    : PriorityWorker(env, database, callback, "classic_level.batch.do"),
+    : PriorityWorker(env, database, deferred, "classic_level.batch.do"),
       batch_(batch), hasData_(hasData) {
     options_.sync = sync;
   }
@@ -1929,12 +1946,12 @@ private:
  * Does a batch write operation on a database.
  */
 NAPI_METHOD(batch_do) {
-  NAPI_ARGV(4);
+  NAPI_ARGV(3);
   NAPI_DB_CONTEXT();
+  NAPI_PROMISE();
 
   napi_value array = argv[1];
   const bool sync = BooleanProperty(env, argv[2], "sync", false);
-  napi_value callback = argv[3];
 
   uint32_t length;
   napi_get_array_length(env, array, &length);
@@ -1973,10 +1990,12 @@ NAPI_METHOD(batch_do) {
     }
   }
 
-  BatchWorker* worker = new BatchWorker(env, database, callback, batch, sync, hasData);
-  worker->Queue(env);
+  BatchWorker* worker = new BatchWorker(
+    env, database, deferred, batch, sync, hasData
+  );
 
-  NAPI_RETURN_UNDEFINED();
+  worker->Queue(env);
+  return promise;
 }
 
 /**
@@ -2092,9 +2111,9 @@ struct BatchWriteWorker final : public PriorityWorker {
   BatchWriteWorker (napi_env env,
                     napi_value context,
                     Batch* batch,
-                    napi_value callback,
+                    napi_deferred deferred,
                     const bool sync)
-    : PriorityWorker(env, batch->database_, callback, "classic_level.batch.write"),
+    : PriorityWorker(env, batch->database_, deferred, "classic_level.batch.write"),
       batch_(batch),
       sync_(sync) {
         // Prevent GC of batch object before we execute
@@ -2124,17 +2143,19 @@ private:
  * Writes a batch object.
  */
 NAPI_METHOD(batch_write) {
-  NAPI_ARGV(3);
+  NAPI_ARGV(2);
   NAPI_BATCH_CONTEXT();
+  NAPI_PROMISE();
 
   napi_value options = argv[1];
   const bool sync = BooleanProperty(env, options, "sync", false);
-  napi_value callback = argv[2];
 
-  BatchWriteWorker* worker  = new BatchWriteWorker(env, argv[0], batch, callback, sync);
+  BatchWriteWorker* worker = new BatchWriteWorker(
+    env, argv[0], batch, deferred, sync
+  );
+
   worker->Queue(env);
-
-  NAPI_RETURN_UNDEFINED();
+  return promise;
 }
 
 /**

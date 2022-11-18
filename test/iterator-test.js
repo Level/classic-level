@@ -1,41 +1,39 @@
 'use strict'
 
-const make = require('./make')
+const test = require('tape')
+const testCommon = require('./common')
 
-make('iterator optimized for seek', function (db, t, done) {
-  const batch = db.batch()
-  batch.put('a', 1)
-  batch.put('b', 1)
-  batch.put('c', 1)
-  batch.put('d', 1)
-  batch.put('e', 1)
-  batch.put('f', 1)
-  batch.put('g', 1)
-  batch.write(function (err) {
-    const ite = db.iterator()
-    t.ifError(err, 'no error from batch()')
-    ite.next(function (err, key, value) {
-      t.ifError(err, 'no error from next()')
-      t.equal(key.toString(), 'a', 'key matches')
-      t.equal(ite.cached, 0, 'no cache')
-      ite.next(function (err, key, value) {
-        t.ifError(err, 'no error from next()')
-        t.equal(key.toString(), 'b', 'key matches')
-        t.ok(ite.cached > 0, 'has cached items')
-        ite.seek('d')
-        t.is(ite.cached, 0, 'cache is emptied')
-        ite.next(function (err, key, value) {
-          t.ifError(err, 'no error from next()')
-          t.equal(key.toString(), 'd', 'key matches')
-          t.equal(ite.cached, 0, 'no cache')
-          ite.next(function (err, key, value) {
-            t.ifError(err, 'no error from next()')
-            t.equal(key.toString(), 'e', 'key matches')
-            t.ok(ite.cached > 0, 'has cached items')
-            ite.close(done)
-          })
-        })
-      })
-    })
-  })
+test('iterator optimized for seek', async function (t) {
+  const db = testCommon.factory()
+
+  await db.open()
+  await db.batch()
+    .put('a', 'value')
+    .put('b', 'value')
+    .put('c', 'value')
+    .put('d', 'value')
+    .put('e', 'value')
+    .put('f', 'value')
+    .put('g', 'value')
+    .write()
+
+  const ite = db.iterator()
+
+  t.same(await ite.next(), ['a', 'value'], 'entry matches')
+  t.is(ite.cached, 0, 'no cache')
+
+  t.same(await ite.next(), ['b', 'value'], 'entry matches')
+  t.ok(ite.cached > 0, 'has cached items')
+
+  ite.seek('d')
+  t.is(ite.cached, 0, 'cache is emptied')
+
+  t.same(await ite.next(), ['d', 'value'], 'entry matches')
+  t.is(ite.cached, 0, 'no cache')
+
+  t.same(await ite.next(), ['e', 'value'], 'entry matches')
+  t.ok(ite.cached > 0, 'has cached items')
+
+  await ite.close()
+  return db.close()
 })

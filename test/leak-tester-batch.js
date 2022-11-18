@@ -5,30 +5,29 @@ const CHAINED = false
 
 const testCommon = require('./common')
 const crypto = require('crypto')
-const assert = require('assert')
 
 let writeCount = 0
 let rssBase
 
-function print () {
-  if (writeCount % 100 === 0) {
+function tick () {
+  if (++writeCount % 100 === 0) {
     if (typeof global.gc !== 'undefined') global.gc()
 
     console.log(
       'writeCount =', writeCount, ', rss =',
       Math.round(process.memoryUsage().rss / rssBase * 100) + '%',
-      Math.round(process.memoryUsage().rss / 1024 / 1024) + 'M',
-      JSON.stringify([0, 1, 2, 3, 4, 5, 6].map(function (l) {
-        return db.getProperty('leveldb.num-files-at-level' + l)
-      }))
+      Math.round(process.memoryUsage().rss / 1024 / 1024) + 'M'
     )
   }
 }
 
 const run = CHAINED
-  ? function () {
+  ? async function () {
     const batch = db.batch()
 
+    // TODO: a good amount of memory usage (and growth) comes from this code and not the db
+    // itself, which makes the output difficult to interpret. See if we can use fixed data
+    // without changing the meaning of the test. Same below (for non-chained).
     for (let i = 0; i < 100; i++) {
       let key = 'long key to test memory usage ' + String(Math.floor(Math.random() * 10000000))
       if (BUFFERS) key = Buffer.from(key)
@@ -37,15 +36,10 @@ const run = CHAINED
       batch.put(key, value)
     }
 
-    batch.write(function (err) {
-      assert(!err)
-      process.nextTick(run)
-    })
-
-    writeCount++
-    print()
+    tick()
+    return batch.write()
   }
-  : function () {
+  : async function () {
     const batch = []
 
     for (let i = 0; i < 100; i++) {
@@ -56,18 +50,13 @@ const run = CHAINED
       batch.push({ type: 'put', key, value })
     }
 
-    db.batch(batch, function (err) {
-      assert(!err)
-      process.nextTick(run)
-    })
-
-    writeCount++
-    print()
+    tick()
+    return db.batch(batch)
   }
 
 const db = testCommon.factory()
 
-db.open(function () {
+db.open().then(async function () {
   rssBase = process.memoryUsage().rss
-  run()
+  while (true) await run()
 })
