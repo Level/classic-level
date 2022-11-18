@@ -41,7 +41,7 @@ jobs:
       - name: Set up node
         uses: actions/setup-node@v3
         with:
-          node-version: 14
+          node-version: 16
           architecture: ${{ matrix.arch }}
       # Temporary fix for https://github.com/nodejs/node-gyp/issues/2869
       # TODO: instead bump node-gyp to >= 10.0.0 (drops Node.js < 16.14)
