@@ -38,7 +38,7 @@
     "cross-env": "^7.0.3",
     "dependency-check": "^4.1.0",
     "du": "^1.0.0",
-    "electron": "^21.0.1",
+    "electron": "^18.3.15",
     "glob": "^8.0.1",
     "hallmark": "^4.1.0",
     "mkfiletree": "^2.0.0",
@@ -66,6 +66,6 @@
     "level"
   ],
   "engines": {
-    "node": ">=12"
+    "node": ">=16"
   }
 }
