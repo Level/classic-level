@@ -11,15 +11,7 @@ const kContext = Symbol('context')
 const kLocation = Symbol('location')
 
 class ClassicLevel extends AbstractLevel {
-  constructor (location, options, _) {
-    // To help migrating to abstract-level
-    // TODO (v2): remove
-    if (typeof options === 'function' || typeof _ === 'function') {
-      throw new ModuleError('The levelup-style callback argument has been removed', {
-        code: 'LEVEL_LEGACY'
-      })
-    }
-
+  constructor (location, options) {
     if (typeof location !== 'string' || location === '') {
       throw new TypeError("The first argument 'location' must be a non-empty string")
     }
