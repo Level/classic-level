@@ -917,7 +917,6 @@ struct Iterator final : public BaseIterator {
       nexting_(false),
       isClosing_(false),
       ended_(false),
-      closeWorker_(NULL),
       state_(state),
       ref_(NULL) {
   }
@@ -980,7 +979,6 @@ struct Iterator final : public BaseIterator {
   bool nexting_;
   bool isClosing_;
   bool ended_;
-  BaseWorker* closeWorker_;
   unsigned char* state_;
   std::vector<Entry> cache_;
 
@@ -996,7 +994,7 @@ private:
 static void env_cleanup_hook (void* arg) {
   Database* database = (Database*)arg;
 
-  // Do everything that db_close() does but synchronously. We're expecting that GC
+  // Do everything that db.close() does but synchronously. We're expecting that GC
   // did not (yet) collect the database because that would be a user mistake (not
   // closing their db) made during the lifetime of the environment. That's different
   // from an environment being torn down (like the main process or a worker thread)
@@ -1099,6 +1097,7 @@ NAPI_METHOD(db_open) {
   NAPI_ARGV(3);
   NAPI_DB_CONTEXT();
   NAPI_ARGV_UTF8_NEW(location, 1);
+  NAPI_PROMISE();
 
   napi_value options = argv[2];
   const bool createIfMissing = BooleanProperty(env, options, "createIfMissing", true);
@@ -1115,8 +1114,6 @@ NAPI_METHOD(db_open) {
   const uint32_t maxFileSize = Uint32Property(env, options, "maxFileSize", 2 << 20);
 
   database->blockCache_ = leveldb::NewLRUCache(cacheSize);
-
-  NAPI_PROMISE();
 
   OpenWorker* worker = new OpenWorker(
     env, database, deferred, location,
@@ -1159,36 +1156,15 @@ NAPI_METHOD(db_close) {
   NAPI_DB_CONTEXT();
   NAPI_PROMISE();
 
+  // AbstractLevel should not call _close() before iterators are closed
+  assert(database->iterators_.size() == 0);
+
   CloseWorker* worker = new CloseWorker(env, database, deferred);
 
   if (!database->HasPriorityWork()) {
     worker->Queue(env);
-    return promise;
-  }
-
-  database->pendingCloseWorker_ = worker;
-
-  std::map<uint32_t, Iterator*> iterators = database->iterators_;
-  std::map<uint32_t, Iterator*>::iterator it;
-
-  for (it = iterators.begin(); it != iterators.end(); ++it) {
-    Iterator* iterator = it->second;
-
-    // TODO (v2): should no longer be necessary? Also not in abstract-level v1. But
-    // if it is, then find a cleaner solution than creating a whole bunch of throwaway promises.
-    if (!iterator->isClosing_ && !iterator->hasClosed_) {
-      // napi_value iteratorPromise;
-      // napi_deferred iteratorDeferred;
-      // NAPI_STATUS_THROWS(napi_create_promise(env, &iteratorDeferred, &iteratorPromise));
-      // CloseIteratorWorker* worker = new CloseIteratorWorker(env, iterator, iteratorPromise, iteratorDeferred);
-      // iterator->isClosing_ = true;
-      //
-      // if (iterator->nexting_) {
-      //   iterator->closeWorker_ = worker;
-      // } else {
-      //   worker->Queue(env);
-      // }
-    }
+  } else {
+    database->pendingCloseWorker_ = worker;
   }
 
   return promise;
@@ -1757,9 +1733,9 @@ NAPI_METHOD(iterator_seek) {
   NAPI_ARGV(2);
   NAPI_ITERATOR_CONTEXT();
 
-  if (iterator->isClosing_ || iterator->hasClosed_) {
-    NAPI_RETURN_UNDEFINED();
-  }
+  // AbstractIterator should not call _seek() after _close()
+  assert(!iterator->isClosing_);
+  assert(!iterator->hasClosed_);
 
   leveldb::Slice target = ToSlice(env, argv[1]);
   iterator->first_ = true;
@@ -1801,20 +1777,16 @@ NAPI_METHOD(iterator_close) {
   NAPI_ITERATOR_CONTEXT();
   NAPI_PROMISE();
 
-  if (!iterator->isClosing_ && !iterator->hasClosed_) {
-    CloseIteratorWorker* worker = new CloseIteratorWorker(env, iterator, deferred);
-    iterator->isClosing_ = true;
+  // AbstractIterator should not call _close() more than once
+  assert(!iterator->isClosing_);
+  assert(!iterator->hasClosed_);
 
-    if (iterator->nexting_) {
-      iterator->closeWorker_ = worker;
-    } else {
-      worker->Queue(env);
-    }
-  } else {
-    // TODO (v2): I think we can remove the isClosing_ checks
-    napi_value argv = CreateCodeError(env, "LEVEL_XYZ", "Should not happen?");
-    NAPI_STATUS_THROWS(napi_reject_deferred(env, deferred, argv));
-  }
+  // AbstractIterator should not call _close() while next() is in-progress
+  assert(!iterator->nexting_);
+
+  CloseIteratorWorker* worker = new CloseIteratorWorker(env, iterator, deferred);
+  iterator->isClosing_ = true;
+  worker->Queue(env);
 
   return promise;
 }
@@ -1864,15 +1836,7 @@ struct NextWorker final : public BaseWorker {
   }
 
   void DoFinally (napi_env env) override {
-    // clean up & handle the next/close state
     iterator_->nexting_ = false;
-
-    // TODO (v2): check if still needed
-    if (iterator_->closeWorker_ != NULL) {
-      iterator_->closeWorker_->Queue(env);
-      iterator_->closeWorker_ = NULL;
-    }
-
     BaseWorker::DoFinally(env);
   }
 
@@ -1894,11 +1858,11 @@ NAPI_METHOD(iterator_nextv) {
   NAPI_STATUS_THROWS(napi_get_value_uint32(env, argv[1], &size));
   if (size == 0) size = 1;
 
-  if (iterator->isClosing_ || iterator->hasClosed_) {
-    // TODO (v2): test, or remove
-    napi_value argv = CreateCodeError(env, "LEVEL_ITERATOR_NOT_OPEN", "Iterator is not open");
-    NAPI_STATUS_THROWS(napi_reject_deferred(env, deferred, argv));
-  } else if (iterator->ended_) {
+  // AbstractIterator should not call _next() or _nextv() after _close()
+  assert(!iterator->isClosing_);
+  assert(!iterator->hasClosed_);
+
+  if (iterator->ended_) {
     napi_value empty;
     napi_create_array_with_length(env, 0, &empty);
     napi_resolve_deferred(env, deferred, empty);
