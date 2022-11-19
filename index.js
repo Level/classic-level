@@ -28,6 +28,9 @@ class ClassicLevel extends AbstractLevel {
       additionalMethods: {
         approximateSize: true,
         compactRange: true
+      },
+      signals: {
+        iterators: true
       }
     }, options)
 

@@ -12,6 +12,7 @@
 #include <map>
 #include <vector>
 #include <mutex>
+#include <atomic>
 
 /**
  * Forward declarations.
@@ -943,6 +944,7 @@ struct Iterator final : public BaseIterator {
       first_(true),
       nexting_(false),
       isClosing_(false),
+      aborted_(false),
       ended_(false),
       state_(state),
       ref_(NULL) {
@@ -966,7 +968,7 @@ struct Iterator final : public BaseIterator {
     size_t bytesRead = 0;
     leveldb::Slice empty;
 
-    while (true) {
+    while (!aborted_) {
       if (!first_) Next();
       else first_ = false;
 
@@ -1005,6 +1007,7 @@ struct Iterator final : public BaseIterator {
   bool first_;
   bool nexting_;
   bool isClosing_;
+  std::atomic<bool> aborted_;
   bool ended_;
   unsigned char* state_;
   std::vector<Entry> cache_;
@@ -1820,6 +1823,16 @@ NAPI_METHOD(iterator_close) {
 }
 
 /**
+ * Aborts a NextWorker (if any, eventually).
+ */
+NAPI_METHOD(iterator_abort) {
+  NAPI_ARGV(1);
+  NAPI_ITERATOR_CONTEXT();
+  iterator->aborted_ = true;
+  NAPI_RETURN_UNDEFINED();
+}
+
+/**
  * Worker class for nexting an iterator.
  */
 struct NextWorker final : public BaseWorker {
@@ -1842,6 +1855,15 @@ struct NextWorker final : public BaseWorker {
   }
 
   void HandleOKCallback (napi_env env, napi_deferred deferred) override {
+    if (iterator_->aborted_) {
+      napi_value err = CreateCodeError(env, "LEVEL_ABORTED", "Operation has been aborted");
+      napi_value name;
+      napi_create_string_utf8(env, "AbortError", NAPI_AUTO_LENGTH, &name);
+      napi_set_named_property(env, err, "name", name);
+      napi_reject_deferred(env, deferred, err);
+      return;
+    }
+
     size_t size = iterator_->cache_.size();
     napi_value jsArray;
     napi_create_array_with_length(env, size, &jsArray);
@@ -2173,6 +2195,7 @@ NAPI_INIT() {
   NAPI_EXPORT_FUNCTION(iterator_seek);
   NAPI_EXPORT_FUNCTION(iterator_close);
   NAPI_EXPORT_FUNCTION(iterator_nextv);
+  NAPI_EXPORT_FUNCTION(iterator_abort);
 
   NAPI_EXPORT_FUNCTION(batch_do);
   NAPI_EXPORT_FUNCTION(batch_init);
