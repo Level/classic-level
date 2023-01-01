@@ -29,7 +29,7 @@
     "abstract-level": "^1.0.2",
     "catering": "^2.1.0",
     "module-error": "^1.0.1",
-    "napi-macros": "~2.2.2",
+    "napi-macros": "^2.2.2",
     "node-gyp-build": "^4.3.0"
   },
   "devDependencies": {
