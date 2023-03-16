@@ -758,6 +758,17 @@ Alternatively, initialize submodules inside the working tree:
 cd classic-level
 git submodule update --init --recursive
 ```
+                                               
+### Building
+
+Building `classic-level` requires both `make` and `g++`
+`apt install make`
+`apt install g++`
+                              
+Once setup, run `npm install --ignore-scripts` to build the dependencies.
+                                               
+`npm run prebuild` will compile the source leveldb files for your current machine's architecture.
+  
 
 ### Contributing
 
