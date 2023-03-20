@@ -1,4 +1,7 @@
 {
+  "variables": {
+    'openssl_fips': ''
+  },
   "targets": [{
     "target_name": "classic_level",
     "conditions": [
