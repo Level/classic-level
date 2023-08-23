@@ -36,7 +36,7 @@ jobs:
         with:
           file: coverage/lcov.info
       - name: Test Electron
-        if: ${{ matrix.node == '14' }}
+        if: ${{ matrix.node == '20' }}
         uses: GabrielBB/xvfb-action@v1
         with:
           run: npm run test-electron
