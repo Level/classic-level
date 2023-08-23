@@ -5,13 +5,14 @@ permissions:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         node: [16, 18, 20]
         arch: [x86, x64]
         exclude:
           - { os: ubuntu-latest, arch: x86 }
-          - { os: macos-11, arch: x86 }
+          - { os: macos-latest, arch: x86 }
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.os }} / Node ${{ matrix.node }} ${{ matrix.arch }}
     steps:
