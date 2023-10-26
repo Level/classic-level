@@ -11,6 +11,7 @@
 
 #include <map>
 #include <vector>
+#include <mutex>
 
 /**
  * Forward declarations.
