@@ -18,11 +18,26 @@
 struct Database;
 struct Iterator;
 static void iterator_close_do (napi_env env, Iterator* iterator, napi_value cb);
+static leveldb::Status threadsafe_open(const leveldb::Options &options, Database &db_instance);
+static leveldb::Status threadsafe_close(Database &db_instance);
+
+/**
+ * Global declarations for multi-threaded access. These are not context-aware
+ * by definition and is specifically to allow for cross thread access to the
+ * single database handle.
+ */
+struct LevelDbHandle
+{
+  leveldb::DB *db;
+  size_t open_handle_count;
+};
+static std::mutex handles_mutex;
+// only access this when protected by the handles_mutex!!!
+static std::map<std::string, LevelDbHandle> db_handles;
 
 /**
  * Macros.
  */
-
 #define NAPI_DB_CONTEXT() \
   Database* database = NULL; \
   NAPI_STATUS_THROWS(napi_get_value_external(env, argv[0], (void**)&database));
@@ -495,19 +510,20 @@ struct Database {
 
   ~Database () {
     if (db_ != NULL) {
-      delete db_;
-      db_ = NULL;
+      threadsafe_close(*this);
     }
   }
 
   leveldb::Status Open (const leveldb::Options& options,
-                        const char* location) {
-    return leveldb::DB::Open(options, location, &db_);
+                        const std::string &location) {
+    location_ = location;
+    return threadsafe_open(options, *this);
   }
 
   void CloseDatabase () {
-    delete db_;
-    db_ = NULL;
+    if (db_ != NULL) {
+      threadsafe_close(*this);
+    }
     if (blockCache_) {
       delete blockCache_;
       blockCache_ = NULL;
@@ -600,7 +616,54 @@ struct Database {
 
 private:
   uint32_t priorityWork_;
+  std::string location_;
+
+  // for separation of concerns the threadsafe functionality was kept at the global
+  // level and made a friend so it is explict where the threadsafe boundary exists
+  friend leveldb::Status threadsafe_open(const leveldb::Options &options, Database &db_instance);
+  friend leveldb::Status threadsafe_close(Database &db_instance);
 };
+
+
+leveldb::Status threadsafe_open(const leveldb::Options &options, Database &db_instance) {
+  std::unique_lock<std::mutex> lock(handles_mutex);
+
+  auto it = db_handles.find(db_instance.location_);
+  if (it != db_handles.end()) {
+    // Database already opened for this location
+    ++(it->second.open_handle_count);
+    db_instance.db_ = it->second.db;
+  } else {
+    // Database not opened yet for this location
+    LevelDbHandle handle = {nullptr, 0};
+    leveldb::Status status = leveldb::DB::Open(options, db_instance.location_, &handle.db);
+    if (!status.ok()) {
+      return status;
+    }
+    handle.open_handle_count++;
+    db_instance.db_ = handle.db;
+    db_handles[db_instance.location_] = handle;
+  }
+
+  return leveldb::Status::OK();
+}
+
+leveldb::Status threadsafe_close(Database &db_instance) {
+  std::unique_lock<std::mutex> lock(handles_mutex);
+  db_instance.db_ = NULL;  // ensure db_ pointer is nullified in Database instance
+
+  auto it = db_handles.find(db_instance.location_);
+  if (it != db_handles.end()) {
+    if (--(it->second.open_handle_count) == 0) {
+      delete it->second.db;
+      db_handles.erase(it);
+    }
+  } else {
+    return leveldb::Status::NotFound("Database handle not found for the given location");
+  }
+
+  return leveldb::Status::OK();
+}
 
 /**
  * Base worker class for doing async work that defers closing the database.
@@ -998,7 +1061,7 @@ struct OpenWorker final : public BaseWorker {
   ~OpenWorker () {}
 
   void DoExecute () override {
-    SetStatus(database_->Open(options_, location_.c_str()));
+    SetStatus(database_->Open(options_, location_));
   }
 
   leveldb::Options options_;
