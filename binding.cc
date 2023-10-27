@@ -19,7 +19,9 @@
 struct Database;
 struct Iterator;
 static void iterator_close_do (napi_env env, Iterator* iterator, napi_value cb);
-static leveldb::Status threadsafe_open(const leveldb::Options &options, Database &db_instance);
+static leveldb::Status threadsafe_open(const leveldb::Options &options,
+                                       bool allow_multi_threading,
+                                       Database &db_instance);
 static leveldb::Status threadsafe_close(Database &db_instance);
 
 /**
@@ -516,9 +518,10 @@ struct Database {
   }
 
   leveldb::Status Open (const leveldb::Options& options,
-                        const std::string &location) {
+                        const std::string &location,
+                        bool allow_multi_threading) {
     location_ = location;
-    return threadsafe_open(options, *this);
+    return threadsafe_open(options, allow_multi_threading, *this);
   }
 
   void CloseDatabase () {
@@ -621,16 +624,23 @@ private:
 
   // for separation of concerns the threadsafe functionality was kept at the global
   // level and made a friend so it is explict where the threadsafe boundary exists
-  friend leveldb::Status threadsafe_open(const leveldb::Options &options, Database &db_instance);
+  friend leveldb::Status threadsafe_open(const leveldb::Options &options,
+                                         bool allow_multi_threading,
+                                         Database &db_instance);
   friend leveldb::Status threadsafe_close(Database &db_instance);
 };
 
 
-leveldb::Status threadsafe_open(const leveldb::Options &options, Database &db_instance) {
+leveldb::Status threadsafe_open(const leveldb::Options &options,
+                                bool allow_multi_threading,
+                                Database &db_instance) {
   std::unique_lock<std::mutex> lock(handles_mutex);
 
   auto it = db_handles.find(db_instance.location_);
   if (it != db_handles.end()) {
+    if (!allow_multi_threading) {
+      return leveldb::Status::IOError("lock " + db_instance.location_, "already held by process");
+    }
     // Database already opened for this location
     ++(it->second.open_handle_count);
     db_instance.db_ = it->second.db;
@@ -1038,13 +1048,15 @@ struct OpenWorker final : public BaseWorker {
               const bool createIfMissing,
               const bool errorIfExists,
               const bool compression,
+              const bool allowMultiThreading,
               const uint32_t writeBufferSize,
               const uint32_t blockSize,
               const uint32_t maxOpenFiles,
               const uint32_t blockRestartInterval,
               const uint32_t maxFileSize)
     : BaseWorker(env, database, callback, "classic_level.db.open"),
-      location_(location) {
+      location_(location),
+      allow_multi_threading_(allowMultiThreading) {
     options_.block_cache = database->blockCache_;
     options_.filter_policy = database->filterPolicy_;
     options_.create_if_missing = createIfMissing;
@@ -1062,11 +1074,12 @@ struct OpenWorker final : public BaseWorker {
   ~OpenWorker () {}
 
   void DoExecute () override {
-    SetStatus(database_->Open(options_, location_));
+    SetStatus(database_->Open(options_, location_, allow_multi_threading_));
   }
 
   leveldb::Options options_;
   std::string location_;
+  bool allow_multi_threading_;
 };
 
 /**
@@ -1081,6 +1094,7 @@ NAPI_METHOD(db_open) {
   const bool createIfMissing = BooleanProperty(env, options, "createIfMissing", true);
   const bool errorIfExists = BooleanProperty(env, options, "errorIfExists", false);
   const bool compression = BooleanProperty(env, options, "compression", true);
+  const bool allowMultiThreading = BooleanProperty(env, options, "allowMultiThreading", false);
 
   const uint32_t cacheSize = Uint32Property(env, options, "cacheSize", 8 << 20);
   const uint32_t writeBufferSize = Uint32Property(env, options , "writeBufferSize" , 4 << 20);
@@ -1095,7 +1109,8 @@ NAPI_METHOD(db_open) {
   napi_value callback = argv[3];
   OpenWorker* worker = new OpenWorker(env, database, callback, location,
                                       createIfMissing, errorIfExists,
-                                      compression, writeBufferSize, blockSize,
+                                      compression, allowMultiThreading,
+                                      writeBufferSize, blockSize,
                                       maxOpenFiles, blockRestartInterval,
                                       maxFileSize);
   worker->Queue(env);

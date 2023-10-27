@@ -213,6 +213,14 @@ export interface OpenOptions extends AbstractOpenOptions {
    * @defaultValue `2 * 1024 * 1024`
    */
   maxFileSize?: number | undefined
+
+  /**
+   * Allows multi-threaded access to a single DB instance for sharing a DB
+   * across multiple worker threads within the same process.
+   * 
+   * NOTE: Does not work for child process
+   */
+  allowMultiThreading?: boolean | undefined
 }
 
 /**
