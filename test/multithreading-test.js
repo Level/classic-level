@@ -5,40 +5,79 @@ const tempy = require("tempy");
 const path = require("path");
 const { Worker } = require("worker_threads");
 const { ClassicLevel } = require("..");
-const { createRandomKeys, getRandomKeys } = require("./worker-utils");
+const { CLOSED_DB_MESSAGE } = require("./worker-utils");
 
-test("allow multi-threading by same process", async function (t) {
+/**
+ * Makes sure that the allowMultiThreading flag is working as expected
+ */
+test("check allowMultiThreading flag works as expected", async function (t) {
+  t.plan(5);
+  const location = tempy.directory();
+  const db1 = new ClassicLevel(location);
+  await db1.open({ location });
+  t.is(db1.location, location);
+
+  const db2 = new ClassicLevel(location);
+  await db2.open({ location, allowMultiThreading: true });
+  t.is(db2.location, location);
+
+  const db3 = new ClassicLevel(location);
+  try {
+    await db3.open({ location, allowMultiThreading: false });
+  } catch (err) {
+    t.is(err.code, "LEVEL_DATABASE_NOT_OPEN", "third instance failed to open");
+    t.is(err.cause.code, "LEVEL_LOCKED", "third instance got lock error");
+  }
+
+  await db1.close();
+  await db2.close();
+
+  const db4 = new ClassicLevel(location);
+  await db4.open({ location, allowMultiThreading: false });
+  t.is(db4.location, location);
+  await db4.close();
+});
+
+/**
+ * Tests for interleaved opening and closing of the database to check
+ * that the mutex for guarding the handles is working as expected
+ */
+test("open/close mutex works as expected", async function (t) {
   t.plan(2);
   const location = tempy.directory();
-  const db = new ClassicLevel(location);
-  await db.open();
-  await createRandomKeys(db);
+  const db1 = new ClassicLevel(location);
+  await db1.open({ location });
+  t.is(db1.location, location);
 
-  const worker = new Worker(path.join(__dirname, "worker-test.js"), {
-    workerData: { location },
-  });
+  const activeWorkers = [];
 
-  function onMessage(_) {
-    getRandomKeys(db, "main").catch((err) => {
-      worker.removeListener("error", onError);
-      onError(err);
+  for (let i = 0; i < 100; i++) {
+    const worker = new Worker(path.join(__dirname, "worker-test.js"), {
+      workerData: {
+        location,
+      },
     });
-  }
-  worker.on("message", onMessage);
 
-  function onError(err) {
-    worker.removeListener("message", onMessage);
-    worker.removeListener("exit", onExit);
-    t.ifError(err, "worker error");
-    db.close(t.ifError.bind(t));
+    activeWorkers.push(
+      new Promise((resolve, reject) => {
+        worker.once("error", (err) => {
+          worker.removeAllListeners("message");
+          reject(err);
+        });
+        worker.once("message", (message) => {
+          if (message !== CLOSED_DB_MESSAGE) {
+            return reject("did not receive correct message");
+          }
+          worker.removeAllListeners("error");
+          resolve();
+        });
+      })
+    );
   }
-  worker.once("error", onError);
 
-  function onExit(code) {
-    worker.removeListener("message", onMessage);
-    worker.removeListener("error", onError);
-    t.equal(code, 0, 'child exited normally');
-    db.close(t.ifError.bind(t));
-  }
-  worker.once("exit", onExit);
+  const results = await Promise.allSettled(activeWorkers);
+  const rejected = results.filter((res) => res.status === "rejected");
+  t.is(rejected.length, 0);
+
+  await db1.close();
 });
