@@ -22,19 +22,23 @@ const {
  * Makes sure that the allowMultiThreading flag is working as expected
  */
 test('check allowMultiThreading flag works as expected', async function (t) {
-  t.plan(5)
+  t.plan(6)
   const location = tempy.directory()
   const db1 = new ClassicLevel(location)
-  await db1.open({ location })
+  await db1.open()
   t.is(db1.location, location)
 
   const db2 = new ClassicLevel(location)
-  await db2.open({ location, allowMultiThreading: true })
+  await db2.open({ allowMultiThreading: true })
   t.is(db2.location, location)
 
-  const db3 = new ClassicLevel(location)
+  const db3 = new ClassicLevel(location, { allowMultiThreading: true })
+  await db3.open()
+  t.is(db3.location, location)
+
+  const db4 = new ClassicLevel(location)
   try {
-    await db3.open({ location, allowMultiThreading: false })
+    await db4.open({ location, allowMultiThreading: false })
   } catch (err) {
     t.is(err.code, 'LEVEL_DATABASE_NOT_OPEN', 'third instance failed to open')
     t.is(err.cause.code, 'LEVEL_LOCKED', 'third instance got lock error')
@@ -42,11 +46,12 @@ test('check allowMultiThreading flag works as expected', async function (t) {
 
   await db1.close()
   await db2.close()
+  await db3.close()
 
-  const db4 = new ClassicLevel(location)
-  await db4.open({ location, allowMultiThreading: false })
-  t.is(db4.location, location)
-  await db4.close()
+  const db5 = new ClassicLevel(location)
+  await db5.open({ location, allowMultiThreading: false })
+  t.is(db5.location, location)
+  await db5.close()
 })
 
 /**
