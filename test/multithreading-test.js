@@ -63,7 +63,7 @@ test('open/close mutex works as expected', async function (t) {
   const activeWorkers = []
 
   for (let i = 0; i < 100; i++) {
-    const worker = new Worker(path.join(__dirname, 'worker-test.js'), {
+    const worker = new Worker(path.join(__dirname, 'worker.js'), {
       workerData: { location, workerStartup: true }
     })
 
@@ -94,7 +94,7 @@ test('allow multi-threading by same process', async function (t) {
     const location = tempy.directory()
     const db = new ClassicLevel(location)
 
-    const worker = new Worker(path.join(__dirname, 'worker-test.js'), {
+    const worker = new Worker(path.join(__dirname, 'worker.js'), {
       workerData: { location, readWrite: true }
     })
 
