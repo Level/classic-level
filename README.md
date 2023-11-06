@@ -201,6 +201,7 @@ The optional `options` object may contain:
 - `createIfMissing` (boolean, default: `true`): If `true`, create an empty database if one doesn't already exist. If `false` and the database doesn't exist, opening will fail.
 - `errorIfExists` (boolean, default: `false`): If `true` and the database already exists, opening will fail.
 - `passive` (boolean, default: `false`): Wait for, but do not initiate, opening of the database.
+- `allowMultiThreading` (boolean, default: `false`): Allow multiple threads to access the database. This is only relevant when using [`node.js worker_threads`](https://nodejs.org/api/worker_threads.html)
 
 For advanced performance tuning, the `options` object may also contain the following. Modify these options only if you can prove actual benefit for your particular application.
 
