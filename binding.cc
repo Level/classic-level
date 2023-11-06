@@ -637,10 +637,7 @@ leveldb::Status threadsafe_open(const leveldb::Options &options,
   std::unique_lock<std::mutex> lock(handles_mutex);
 
   auto it = db_handles.find(db_instance.location_);
-  if (it != db_handles.end()) {
-    if (!allow_multi_threading) {
-      return leveldb::Status::IOError("lock " + db_instance.location_, "already held by process");
-    }
+  if (it != db_handles.end() && allow_multi_threading) {
     // Database already opened for this location
     ++(it->second.open_handle_count);
     db_instance.db_ = it->second.db;
@@ -664,13 +661,13 @@ leveldb::Status threadsafe_close(Database &db_instance) {
   db_instance.db_ = NULL;  // ensure db_ pointer is nullified in Database instance
 
   auto it = db_handles.find(db_instance.location_);
-  if (it != db_handles.end()) {
-    if (--(it->second.open_handle_count) == 0) {
-      delete it->second.db;
-      db_handles.erase(it);
-    }
-  } else {
+  if (it == db_handles.end()) {
     return leveldb::Status::NotFound("Database handle not found for the given location");
+  } 
+
+  if (--(it->second.open_handle_count) == 0) {
+    delete it->second.db;
+    db_handles.erase(it);
   }
 
   return leveldb::Status::OK();
