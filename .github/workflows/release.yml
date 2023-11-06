@@ -42,6 +42,12 @@ jobs:
         with:
           node-version: 14
           architecture: ${{ matrix.arch }}
+      # Temporary fix for https://github.com/nodejs/node-gyp/issues/2869
+      # TODO: instead bump node-gyp to >= 10.0.0 (drops Node.js < 16.14)
+      - name: Use Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
       - name: Install
         run: npm install --ignore-scripts
       - name: Prebuild
