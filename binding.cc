@@ -662,7 +662,9 @@ leveldb::Status threadsafe_close(Database &db_instance) {
 
   auto it = db_handles.find(db_instance.location_);
   if (it == db_handles.end()) {
-    return leveldb::Status::NotFound("Database handle not found for the given location");
+    // this should never happen in theory but silently fail and return OK to
+    // prevent segfault if it does
+    return leveldb::Status::OK();
   } 
 
   if (--(it->second.open_handle_count) == 0) {
