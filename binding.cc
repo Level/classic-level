@@ -35,7 +35,7 @@ struct LevelDbHandle
   size_t open_handle_count;
 };
 static std::mutex handles_mutex;
-// only access this when protected by the handles_mutex!!!
+// only access this when protected by the handles_mutex!
 static std::map<std::string, LevelDbHandle> db_handles;
 
 /**

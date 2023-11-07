@@ -218,7 +218,7 @@ export interface OpenOptions extends AbstractOpenOptions {
    * Allows multi-threaded access to a single DB instance for sharing a DB
    * across multiple worker threads within the same process.
    * 
-   * NOTE: Does not work for child process
+   * @defaultValue `false`
    */
   multithreading?: boolean | undefined
 }
