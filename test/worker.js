@@ -18,7 +18,7 @@ const {
 
 (async function main () {
   const db = new ClassicLevel(workerData.location)
-  await db.open({ allowMultiThreading: true })
+  await db.open({ multithreading: true })
 
   try {
     /**

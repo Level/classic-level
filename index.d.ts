@@ -220,7 +220,7 @@ export interface OpenOptions extends AbstractOpenOptions {
    * 
    * NOTE: Does not work for child process
    */
-  allowMultiThreading?: boolean | undefined
+  multithreading?: boolean | undefined
 }
 
 /**
