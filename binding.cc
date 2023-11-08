@@ -33,6 +33,7 @@ struct LevelDbHandle
 {
   leveldb::DB *db;
   size_t open_handle_count;
+  bool multithreading;
 };
 static std::mutex handles_mutex;
 // only access this when protected by the handles_mutex!
@@ -637,13 +638,9 @@ leveldb::Status threadsafe_open(const leveldb::Options &options,
   std::unique_lock<std::mutex> lock(handles_mutex);
 
   auto it = db_handles.find(db_instance.location_);
-  if (it != db_handles.end() && multithreading) {
-    // Database already opened for this location
-    ++(it->second.open_handle_count);
-    db_instance.db_ = it->second.db;
-  } else {
+  if (it == db_handles.end()) {
     // Database not opened yet for this location
-    LevelDbHandle handle = {nullptr, 0};
+    LevelDbHandle handle = {nullptr, 0, multithreading};
     leveldb::Status status = leveldb::DB::Open(options, db_instance.location_, &handle.db);
     if (!status.ok()) {
       return status;
@@ -651,7 +648,16 @@ leveldb::Status threadsafe_open(const leveldb::Options &options,
     handle.open_handle_count++;
     db_instance.db_ = handle.db;
     db_handles[db_instance.location_] = handle;
+    return leveldb::Status::OK();
   }
+
+  if (!(it->second.multithreading && multithreading)) {
+    // Database already opened for this location that disallows multithreading
+    return leveldb::Status::InvalidArgument("Database already opened. Must set multithreading flag to true for all instances");
+  }
+
+  ++(it->second.open_handle_count);
+  db_instance.db_ = it->second.db;
 
   return leveldb::Status::OK();
 }

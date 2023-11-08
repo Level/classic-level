@@ -22,28 +22,45 @@ const {
  * Makes sure that the multithreading flag is working as expected
  */
 test('check multithreading flag works as expected', async function (t) {
-  t.plan(6)
+  t.plan(9)
   const location = tempy.directory()
   const db1 = new ClassicLevel(location)
+  const db2 = new ClassicLevel(location)
+
+  // check that must set multithreading flag on all instances
   await db1.open()
   t.is(db1.location, location)
+  try {
+    await db2.open({ multithreading: true })
+  } catch (err) {
+    t.is(err.code, 'LEVEL_DATABASE_NOT_OPEN', 'third instance failed to open')
+    t.is(
+      err.cause.message,
+      'Invalid argument: Database already opened. Must set multithreading flag to true for all instances',
+      'third instance got lock error'
+    )
+  }
+  await db1.close()
 
-  const db2 = new ClassicLevel(location)
+  await db1.open({ multithreading: true })
+  t.is(db1.location, location)
   await db2.open({ multithreading: true })
   t.is(db2.location, location)
-
+  // test that passing to the constructor works
   const db3 = new ClassicLevel(location, { multithreading: true })
   await db3.open()
   t.is(db3.location, location)
-
   const db4 = new ClassicLevel(location)
   try {
     await db4.open({ location, multithreading: false })
   } catch (err) {
     t.is(err.code, 'LEVEL_DATABASE_NOT_OPEN', 'third instance failed to open')
-    t.is(err.cause.code, 'LEVEL_LOCKED', 'third instance got lock error')
+    t.is(
+      err.cause.message,
+      'Invalid argument: Database already opened. Must set multithreading flag to true for all instances',
+      'third instance got lock error'
+    )
   }
-
   await db1.close()
   await db2.close()
   await db3.close()
@@ -56,13 +73,18 @@ test('check multithreading flag works as expected', async function (t) {
 
 /**
  * Tests for interleaved opening and closing of the database to check
- * that the mutex for guarding the handles is working as expected
+ * that the mutex for guarding the handles is working as expected.  Creates
+ * many workers that only open and then close the db after a random delay.  Goal
+ * is to interleave the open and close processes to ensure that the mutex is
+ * guarding the handles correctly.  After all workers have completed the main
+ * thread closes the db and then opens it again as a non-multi-threaded instance
+ * to make sure the handle was deleted correctly.
  */
 test('open/close mutex works as expected', async function (t) {
-  t.plan(2)
+  t.plan(3)
   const location = tempy.directory()
   const db1 = new ClassicLevel(location)
-  await db1.open({ location })
+  await db1.open({ multithreading: true })
   t.is(db1.location, location)
 
   const activeWorkers = []
@@ -90,14 +112,31 @@ test('open/close mutex works as expected', async function (t) {
   const results = await Promise.allSettled(activeWorkers)
   const rejected = results.filter((res) => res.status === 'rejected')
   t.is(rejected.length, 0)
-
+  await db1.close()
+  
+  // reopen the db non-multithreaded to check that the handle record was fully
+  // deleted from the handle map
+  await db1.open({ multithreading: false })
+  t.is(db1.location, location)
   await db1.close()
 })
 
+/**
+ * Tests for reading and writing to a single db from multiple threads.
+ *
+ * Starts by setting up worker and then worker reports its ready and immediately
+ * starts writing to the database.  Main thread gets message and also writes to
+ * the same db but to a different key space.  Goal is to concurrently write
+ * consecutively numbered records.  Once records are all written the worker
+ * reports to the main thread and the main thread waits until both threads are
+ * complete with the writing process. When both are ready they concurrently read
+ * random records from the full key space for a set interval.
+ */
 test('allow multi-threading by same process', async function (t) {
   try {
     const location = tempy.directory()
-    const db = new ClassicLevel(location)
+    const db = new ClassicLevel(location, { multithreading: true })
+    await db.open()
 
     const worker = new Worker(path.join(__dirname, 'worker.js'), {
       workerData: { location, readWrite: true }
