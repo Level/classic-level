@@ -113,7 +113,7 @@ test('open/close mutex works as expected', async function (t) {
   const rejected = results.filter((res) => res.status === 'rejected')
   t.is(rejected.length, 0)
   await db1.close()
-  
+
   // reopen the db non-multithreaded to check that the handle record was fully
   // deleted from the handle map
   await db1.open({ multithreading: false })
