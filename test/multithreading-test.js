@@ -37,7 +37,7 @@ test('check multithreading flag works as expected', async function (t) {
     t.is(
       err.cause.message,
       'Invalid argument: Database already opened. Must set multithreading flag to true for all instances',
-      'third instance got lock error'
+      'second instance got lock error'
     )
   }
   await db1.close()
@@ -58,7 +58,7 @@ test('check multithreading flag works as expected', async function (t) {
     t.is(
       err.cause.message,
       'Invalid argument: Database already opened. Must set multithreading flag to true for all instances',
-      'third instance got lock error'
+      'fourth instance got lock error'
     )
   }
   await db1.close()
