@@ -18,7 +18,11 @@ test('lock held by same process', async function (t) {
     await db2.open()
   } catch (err) {
     t.is(err.code, 'LEVEL_DATABASE_NOT_OPEN', 'second instance failed to open')
-    t.is(err.cause.code, 'LEVEL_LOCKED', 'second instance got lock error')
+    t.is(
+      err.cause.message,
+      'Invalid argument: Database already opened. Must set multithreading flag to true for all instances',
+      'second instance got lock error'
+    )
   }
 
   return db1.close()
