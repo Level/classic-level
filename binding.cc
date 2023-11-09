@@ -33,7 +33,6 @@ struct LevelDbHandle
 {
   leveldb::DB *db;
   size_t open_handle_count;
-  bool multithreading;
 };
 static std::mutex handles_mutex;
 // only access this when protected by the handles_mutex!
@@ -635,25 +634,27 @@ private:
 leveldb::Status threadsafe_open(const leveldb::Options &options,
                                 bool multithreading,
                                 Database &db_instance) {
+  // Bypass lock and handles if multithreading is disabled
+  if (!multithreading) {
+    return leveldb::DB::Open(options, db_instance.location_, &db_instance.db_);
+  }
+
   std::unique_lock<std::mutex> lock(handles_mutex);
 
   auto it = db_handles.find(db_instance.location_);
   if (it == db_handles.end()) {
-    // Database not opened yet for this location
-    LevelDbHandle handle = {nullptr, 0, multithreading};
+    // Database not opened yet for this location, unless it was with
+    // multithreading disabled, in which case we're expected to fail here.
+    LevelDbHandle handle = {nullptr, 0};
     leveldb::Status status = leveldb::DB::Open(options, db_instance.location_, &handle.db);
-    if (!status.ok()) {
-      return status;
-    }
-    handle.open_handle_count++;
-    db_instance.db_ = handle.db;
-    db_handles[db_instance.location_] = handle;
-    return leveldb::Status::OK();
-  }
 
-  if (!(it->second.multithreading && multithreading)) {
-    // Database already opened for this location that disallows multithreading
-    return leveldb::Status::InvalidArgument("Database already opened. Must set multithreading flag to true for all instances");
+    if (status.ok()) {
+      handle.open_handle_count++;
+      db_instance.db_ = handle.db;
+      db_handles[db_instance.location_] = handle;
+    }
+    
+    return status;
   }
 
   ++(it->second.open_handle_count);
@@ -664,20 +665,18 @@ leveldb::Status threadsafe_open(const leveldb::Options &options,
 
 leveldb::Status threadsafe_close(Database &db_instance) {
   std::unique_lock<std::mutex> lock(handles_mutex);
-  db_instance.db_ = NULL;  // ensure db_ pointer is nullified in Database instance
 
   auto it = db_handles.find(db_instance.location_);
   if (it == db_handles.end()) {
-    // this should never happen in theory but silently fail and return OK to
-    // prevent segfault if it does
-    return leveldb::Status::OK();
-  } 
-
-  if (--(it->second.open_handle_count) == 0) {
+    // Was not opened with multithreading enabled
+    delete db_instance.db_;
+  } else if (--(it->second.open_handle_count) == 0) {
     delete it->second.db;
     db_handles.erase(it);
   }
 
+  // ensure db_ pointer is nullified in Database instance
+  db_instance.db_ = NULL;
   return leveldb::Status::OK();
 }
 

@@ -34,11 +34,7 @@ test('check multithreading flag works as expected', async function (t) {
     await db2.open({ multithreading: true })
   } catch (err) {
     t.is(err.code, 'LEVEL_DATABASE_NOT_OPEN', 'second instance failed to open')
-    t.is(
-      err.cause.message,
-      'Invalid argument: Database already opened. Must set multithreading flag to true for all instances',
-      'second instance got lock error'
-    )
+    t.is(err.cause.code, 'LEVEL_LOCKED', 'second instance got lock error')
   }
   await db1.close()
 
@@ -55,11 +51,7 @@ test('check multithreading flag works as expected', async function (t) {
     await db4.open({ location, multithreading: false })
   } catch (err) {
     t.is(err.code, 'LEVEL_DATABASE_NOT_OPEN', 'fourth instance failed to open')
-    t.is(
-      err.cause.message,
-      'Invalid argument: Database already opened. Must set multithreading flag to true for all instances',
-      'fourth instance got lock error'
-    )
+    t.is(err.cause.code, 'LEVEL_LOCKED', 'second instance got lock error')
   }
   await db1.close()
   await db2.close()
