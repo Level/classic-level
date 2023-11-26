@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.0] - 2023-11-26
+
+### Added
+
+- Add opt-in multithreading ([#85](https://github.com/Level/classic-level/issues/85)) ([`7d497a5`](https://github.com/Level/classic-level/commit/7d497a5)) (Matthew Keil).
+
 ## [1.3.0] - 2023-04-07
 
 ### Changed
@@ -37,6 +43,8 @@
 ## [1.0.0] - 2022-03-04
 
 _:seedling: Initial release. If you are upgrading from `leveldown` please see [`UPGRADING.md`](UPGRADING.md)._
+
+[1.4.0]: https://github.com/Level/classic-level/releases/tag/v1.4.0
 
 [1.3.0]: https://github.com/Level/classic-level/releases/tag/v1.3.0
 
