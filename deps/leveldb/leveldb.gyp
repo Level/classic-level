@@ -55,7 +55,7 @@
       }, {
         "sources": [
           "leveldb-<(ldbversion)/util/env_posix.cc",
-          "leveldb-<(ldbversion)/util/posix_logger.cc"
+          "leveldb-<(ldbversion)/util/posix_logger.h"
         ],
         "defines": [
           "LEVELDB_PLATFORM_POSIX=1"
@@ -262,22 +262,21 @@
     "leveldb-<(ldbversion)/util/options.cc",
     "leveldb-<(ldbversion)/util/random.h",
     "leveldb-<(ldbversion)/util/status.cc",   
-          "leveldb-<(ldbversion)/include/leveldb/c.h",
-          "leveldb-<(ldbversion)/include/leveldb/cache.h",
-          "leveldb-<(ldbversion)/include/leveldb/comparator.h",
-          "leveldb-<(ldbversion)/include/leveldb/db.h",
-          "leveldb-<(ldbversion)/include/leveldb/dumpfile.h",
-          "leveldb-<(ldbversion)/include/leveldb/env.h",
-          "leveldb-<(ldbversion)/include/leveldb/export.h",
-          "leveldb-<(ldbversion)/include/leveldb/filter_policy.h",
-          "leveldb-<(ldbversion)/include/leveldb/iterator.h",
-          "leveldb-<(ldbversion)/include/leveldb/options.h",
-          "leveldb-<(ldbversion)/include/leveldb/slice.h",
-          "leveldb-<(ldbversion)/include/leveldb/status.h",
-          "leveldb-<(ldbversion)/include/leveldb/table_builder.h",
-          "leveldb-<(ldbversion)/include/leveldb/table.h",
-          "leveldb-<(ldbversion)/include/leveldb/write_batch.h"
-
+    "leveldb-<(ldbversion)/include/leveldb/c.h",
+    "leveldb-<(ldbversion)/include/leveldb/cache.h",
+    "leveldb-<(ldbversion)/include/leveldb/comparator.h",
+    "leveldb-<(ldbversion)/include/leveldb/db.h",
+    "leveldb-<(ldbversion)/include/leveldb/dumpfile.h",
+    "leveldb-<(ldbversion)/include/leveldb/env.h",
+    "leveldb-<(ldbversion)/include/leveldb/export.h",
+    "leveldb-<(ldbversion)/include/leveldb/filter_policy.h",
+    "leveldb-<(ldbversion)/include/leveldb/iterator.h",
+    "leveldb-<(ldbversion)/include/leveldb/options.h",
+    "leveldb-<(ldbversion)/include/leveldb/slice.h",
+    "leveldb-<(ldbversion)/include/leveldb/status.h",
+    "leveldb-<(ldbversion)/include/leveldb/table_builder.h",
+    "leveldb-<(ldbversion)/include/leveldb/table.h",
+    "leveldb-<(ldbversion)/include/leveldb/write_batch.h"
     ]
   }]
 }
