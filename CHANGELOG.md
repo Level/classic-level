@@ -3,6 +3,8 @@
 
 ## [1.3.0-leveldb-1.2.2] - 2023-11-27
 
+### Changed
+
 - Upgrading Level DB to 1.2.2
 
 ## [1.3.0] - 2023-04-07
