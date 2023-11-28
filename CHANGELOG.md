@@ -1,6 +1,5 @@
 # Changelog
 
-
 ## [1.3.0-leveldb-1.2.2] - 2023-11-27
 
 ### Changed
