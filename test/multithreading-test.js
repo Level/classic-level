@@ -27,7 +27,7 @@ test('check multithreading flag works as expected', async function (t) {
   const db1 = new ClassicLevel(location)
   await db1.open()
   t.is(db1.location, location)
-  
+
   // check that must set multithreading flag on all instances
   let db2
   try {
