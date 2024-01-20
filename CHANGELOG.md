@@ -1,6 +1,14 @@
 # Changelog
 
+## [1.4.1] - 2024-01-20
+
+### Fixed
+
+- Fix race condition in tests ([#90](https://github.com/Level/classic-level/issues/90)) ([`9ff2e82`](https://github.com/Level/classic-level/commit/9ff2e82)) (Matthew Keil).
+
 ## [1.4.0] - 2023-11-26
+
+_Not released to npm because of a race issue, which was fixed in 1.4.1._
 
 ### Added
 
@@ -43,6 +51,8 @@
 ## [1.0.0] - 2022-03-04
 
 _:seedling: Initial release. If you are upgrading from `leveldown` please see [`UPGRADING.md`](UPGRADING.md)._
+
+[1.4.1]: https://github.com/Level/classic-level/releases/tag/v1.4.1
 
 [1.4.0]: https://github.com/Level/classic-level/releases/tag/v1.4.0
 
