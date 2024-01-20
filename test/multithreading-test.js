@@ -25,12 +25,13 @@ test('check multithreading flag works as expected', async function (t) {
   t.plan(9)
   const location = tempy.directory()
   const db1 = new ClassicLevel(location)
-  const db2 = new ClassicLevel(location)
-
-  // check that must set multithreading flag on all instances
   await db1.open()
   t.is(db1.location, location)
+
+  // check that must set multithreading flag on all instances
+  let db2
   try {
+    db2 = new ClassicLevel(location)
     await db2.open({ multithreading: true })
   } catch (err) {
     t.is(err.code, 'LEVEL_DATABASE_NOT_OPEN', 'second instance failed to open')
