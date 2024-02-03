@@ -148,8 +148,7 @@ The `classic-level` npm package ships with prebuilt binaries for popular 64-bit 
 
 - **Linux**, including ARM platforms such as Raspberry Pi and Kindle
 - **Mac OS** (10.7 and later)
-- **Windows**
-- **FreeBSD**
+- **Windows**.
 
 When installing `classic-level`, [`node-gyp-build`](https://github.com/prebuild/node-gyp-build) will check if a compatible binary exists and fallback to compiling from source if it doesn't. In that case you'll need a [valid `node-gyp` installation](https://github.com/nodejs/node-gyp#installation).
 

@@ -42,7 +42,6 @@ yarn.lock
 .gitmodules
 .github
 .travis.yml
-.cirrus.yml
 appveyor.yml
 tsconfig.json
 
