@@ -87,7 +87,6 @@ class ClassicLevel extends AbstractLevel {
     return binding.batch_do(this[kContext], operations, options)
   }
 
-  // TODO (v2): update docs
   async approximateSize (start, end, options) {
     if (arguments.length < 2) {
       throw new TypeError("The arguments 'start' and 'end' are required")
@@ -109,8 +108,7 @@ class ClassicLevel extends AbstractLevel {
     }
   }
 
-  // TODO (v2): update docs
-  compactRange (start, end, options) {
+  async compactRange (start, end, options) {
     if (arguments.length < 2) {
       throw new TypeError("The arguments 'start' and 'end' are required")
     } else if (typeof options !== 'object') {
@@ -150,7 +148,6 @@ class ClassicLevel extends AbstractLevel {
     return new Iterator(this, this[kContext], options)
   }
 
-  // TODO (v2): update docs
   static async destroy (location) {
     if (typeof location !== 'string' || location === '') {
       throw new TypeError("The first argument 'location' must be a non-empty string")
@@ -159,7 +156,6 @@ class ClassicLevel extends AbstractLevel {
     return binding.destroy_db(location)
   }
 
-  // TODO (v2): update docs
   static async repair (location) {
     if (typeof location !== 'string' || location === '') {
       throw new TypeError("The first argument 'location' must be a non-empty string")
