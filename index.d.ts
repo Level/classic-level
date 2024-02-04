@@ -16,8 +16,7 @@ import {
   AbstractKeyIteratorOptions,
   AbstractValueIterator,
   AbstractValueIteratorOptions,
-  Transcoder,
-  NodeCallback
+  Transcoder
 } from 'abstract-level'
 
 /**
@@ -48,33 +47,21 @@ declare class ClassicLevel<KDefault = string, VDefault = string>
 
   open (): Promise<void>
   open (options: OpenOptions): Promise<void>
-  open (callback: NodeCallback<void>): void
-  open (options: OpenOptions, callback: NodeCallback<void>): void
 
   get (key: KDefault): Promise<VDefault>
-  get (key: KDefault, callback: NodeCallback<VDefault>): void
   get<K = KDefault, V = VDefault> (key: K, options: GetOptions<K, V>): Promise<V>
-  get<K = KDefault, V = VDefault> (key: K, options: GetOptions<K, V>, callback: NodeCallback<V>): void
 
   getMany (keys: KDefault[]): Promise<VDefault[]>
-  getMany (keys: KDefault[], callback: NodeCallback<VDefault[]>): void
   getMany<K = KDefault, V = VDefault> (keys: K[], options: GetManyOptions<K, V>): Promise<V[]>
-  getMany<K = KDefault, V = VDefault> (keys: K[], options: GetManyOptions<K, V>, callback: NodeCallback<V[]>): void
 
   put (key: KDefault, value: VDefault): Promise<void>
-  put (key: KDefault, value: VDefault, callback: NodeCallback<void>): void
   put<K = KDefault, V = VDefault> (key: K, value: V, options: PutOptions<K, V>): Promise<void>
-  put<K = KDefault, V = VDefault> (key: K, value: V, options: PutOptions<K, V>, callback: NodeCallback<void>): void
 
   del (key: KDefault): Promise<void>
-  del (key: KDefault, callback: NodeCallback<void>): void
   del<K = KDefault> (key: K, options: DelOptions<K>): Promise<void>
-  del<K = KDefault> (key: K, options: DelOptions<K>, callback: NodeCallback<void>): void
 
   batch (operations: Array<BatchOperation<typeof this, KDefault, VDefault>>): Promise<void>
-  batch (operations: Array<BatchOperation<typeof this, KDefault, VDefault>>, callback: NodeCallback<void>): void
   batch<K = KDefault, V = VDefault> (operations: Array<BatchOperation<typeof this, K, V>>, options: BatchOptions<K, V>): Promise<void>
-  batch<K = KDefault, V = VDefault> (operations: Array<BatchOperation<typeof this, K, V>>, options: BatchOptions<K, V>, callback: NodeCallback<void>): void
   batch (): ChainedBatch<typeof this, KDefault, VDefault>
 
   iterator (): Iterator<typeof this, KDefault, VDefault>
@@ -91,17 +78,13 @@ declare class ClassicLevel<KDefault = string, VDefault = string>
    * `[start..end)`.
    */
   approximateSize (start: KDefault, end: KDefault): Promise<number>
-  approximateSize (start: KDefault, end: KDefault, callback: NodeCallback<number>): void
   approximateSize<K = KDefault> (start: K, end: K, options: StartEndOptions<K>): Promise<number>
-  approximateSize<K = KDefault> (start: K, end: K, options: StartEndOptions<K>, callback: NodeCallback<number>): void
 
   /**
    * Manually trigger a database compaction in the range `[start..end)`.
    */
   compactRange (start: KDefault, end: KDefault): Promise<void>
-  compactRange (start: KDefault, end: KDefault, callback: NodeCallback<void>): void
   compactRange<K = KDefault> (start: K, end: K, options: StartEndOptions<K>): Promise<void>
-  compactRange<K = KDefault> (start: K, end: K, options: StartEndOptions<K>, callback: NodeCallback<void>): void
 
   /**
    * Get internal details from LevelDB.
@@ -113,14 +96,12 @@ declare class ClassicLevel<KDefault = string, VDefault = string>
    * place of a full directory removal to only remove LevelDB-related files.
    */
   static destroy (location: string): Promise<void>
-  static destroy (location: string, callback: NodeCallback<void>): void
 
   /**
    * Attempt a restoration of a damaged database. Can also be used to perform
    * a compaction of the LevelDB log into table files.
    */
   static repair (location: string): Promise<void>
-  static repair (location: string, callback: NodeCallback<void>): void
 }
 
 /**
@@ -311,8 +292,6 @@ export interface ChainedBatchWriteOptions extends AbstractChainedBatchWriteOptio
 export class ChainedBatch<TDatabase, KDefault, VDefault> extends AbstractChainedBatch<TDatabase, KDefault, VDefault> {
   write (): Promise<void>
   write (options: ChainedBatchWriteOptions): Promise<void>
-  write (callback: NodeCallback<void>): void
-  write (options: ChainedBatchWriteOptions, callback: NodeCallback<void>): void
 }
 
 /**

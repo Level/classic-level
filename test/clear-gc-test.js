@@ -12,36 +12,22 @@ for (let i = 0; i < 1e3; i++) {
   })
 }
 
-test('db without ref does not get GCed while clear() is in progress', function (t) {
-  t.plan(4)
-
+test('db without ref does not get GCed while clear() is in progress', async function (t) {
   let db = testCommon.factory()
 
-  db.open(function (err) {
-    t.ifError(err, 'no open error')
+  await db.open()
+  await db.batch(sourceData.slice())
 
-    // Insert test data
-    db.batch(sourceData.slice(), function (err) {
-      t.ifError(err, 'no batch error')
+  // Start async work
+  const promise = db.clear()
 
-      // Start async work
-      db.clear(function () {
-        t.pass('got callback')
+  // Remove reference. The db should not get garbage collected
+  // until after the clear() callback, thanks to a napi_ref.
+  db = null
 
-        // Give GC another chance to run, to rule out other issues.
-        setImmediate(function () {
-          if (global.gc) global.gc()
-          t.pass()
-        })
-      })
+  // Useful for manual testing with "node --expose-gc".
+  // The pending tap assertion may also allow GC to kick in.
+  if (global.gc) global.gc()
 
-      // Remove reference. The db should not get garbage collected
-      // until after the clear() callback, thanks to a napi_ref.
-      db = null
-
-      // Useful for manual testing with "node --expose-gc".
-      // The pending tap assertion may also allow GC to kick in.
-      if (global.gc) global.gc()
-    })
-  })
+  return promise
 })

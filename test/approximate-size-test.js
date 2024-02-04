@@ -2,65 +2,59 @@
 
 const test = require('tape')
 const testCommon = require('./common')
-const noop = () => {}
 
 let db
 
-test('setUp db', function (t) {
+test('approximateSize() setup', async function (t) {
   db = testCommon.factory()
-  db.open(t.end.bind(t))
+  return db.open()
 })
 
-test('test approximateSize() throws if arguments are missing', function (t) {
-  for (const args of [[], ['foo'], [noop], ['foo', noop]]) {
-    t.throws(() => db.approximateSize(...args), {
-      name: 'TypeError',
-      message: "The arguments 'start' and 'end' are required"
-    })
+test('approximateSize() throws if arguments are missing', async function (t) {
+  t.plan(2 * 2)
+
+  for (const args of [[], ['foo']]) {
+    try {
+      await db.approximateSize(...args)
+    } catch (err) {
+      t.is(err.name, 'TypeError')
+      t.is(err.message, "The arguments 'start' and 'end' are required")
+    }
   }
-  t.end()
 })
 
-test('test approximateSize()', function (t) {
+test('approximateSize()', async function (t) {
   const data = Array.apply(null, Array(10000)).map(function () {
     return 'aaaaaaaaaa'
   }).join('')
 
-  db.batch(Array.apply(null, Array(10)).map(function (x, i) {
+  await db.batch(Array.apply(null, Array(10)).map(function (x, i) {
     return { type: 'put', key: 'foo' + i, value: data }
-  }), function (err) {
-    t.error(err)
+  }))
 
-    // cycle open/close to ensure a pack to .sst
+  // cycle open/close to ensure a pack to .sst
+  await db.close()
+  await db.open()
 
-    db.close(function (err) {
-      t.error(err)
+  const size = await db.approximateSize('!', '~')
 
-      db.open(function (err) {
-        t.error(err)
-
-        db.approximateSize('!', '~', function (err, size) {
-          t.error(err)
-
-          t.equal(typeof size, 'number')
-          // account for snappy compression, original would be ~100000
-          t.ok(size > 40000, 'size reports a reasonable amount (' + size + ')')
-          t.end()
-        })
-      })
-    })
-  })
+  t.equal(typeof size, 'number')
+  // account for snappy compression, original would be ~100000
+  t.ok(size > 40000, 'size reports a reasonable amount (' + size + ')')
 })
 
-test('tearDown', function (t) {
-  db.close(t.end.bind(t))
+test('approximateSize() teardown', async function (t) {
+  return db.close()
 })
 
-test('test approximateSize() yields error if db is closed', function (t) {
-  db.approximateSize('foo', 'foo', function (err) {
-    t.is(err && err.code, 'LEVEL_DATABASE_NOT_OPEN')
-    t.end()
-  })
+test('approximateSize() yields error if db is closed', async function (t) {
+  t.plan(1)
+
+  try {
+    await db.approximateSize('foo', 'foo')
+  } catch (err) {
+    t.is(err.code, 'LEVEL_DATABASE_NOT_OPEN')
+  }
 })
 
 test('test approximateSize() is deferred', async function (t) {

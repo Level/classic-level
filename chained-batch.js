@@ -23,13 +23,12 @@ class ChainedBatch extends AbstractChainedBatch {
     binding.batch_clear(this[kContext])
   }
 
-  _write (options, callback) {
-    binding.batch_write(this[kContext], options, callback)
+  async _write (options) {
+    return binding.batch_write(this[kContext], options)
   }
 
-  _close (callback) {
+  async _close () {
     // TODO: close native batch (currently done on GC)
-    process.nextTick(callback)
   }
 }
 

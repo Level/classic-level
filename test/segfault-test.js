@@ -7,83 +7,73 @@ const operations = []
 // The db must wait for pending operations to finish before closing. This to
 // prevent segfaults and in the case of compactRange() to prevent hanging. See
 // https://github.com/Level/leveldown/issues/157 and 32.
-function testPending (name, expectedCount, fn) {
+function testPending (name, fn) {
   operations.push(fn)
 
-  test(`close() waits for pending ${name}`, function (t) {
+  test(`close() waits for pending ${name}`, async function (t) {
     const db = testCommon.factory()
-    let count = 0
+    let finished = false
 
-    db.open(function (err) {
-      t.ifError(err, 'no error from open()')
+    await db.open()
+    await db.put('key', 'value')
 
-      db.put('key', 'value', function (err) {
-        t.ifError(err, 'no error from put()')
+    fn(db).then(function () {
+      finished = true
+    })
 
-        fn(db, function (err) {
-          count++
-          t.ifError(err, 'no error from operation')
-        })
-
-        db.close(function (err) {
-          t.ifError(err, 'no error from close()')
-          t.is(count, expectedCount, 'operation(s) finished before close')
-          t.end()
-        })
-      })
+    return db.close().then(function () {
+      t.is(finished, true, 'operation(s) finished before close')
     })
   })
 }
 
-testPending('get()', 1, function (db, next) {
-  db.get('key', next)
+testPending('get()', async function (db) {
+  return db.get('key')
 })
 
-testPending('put()', 1, function (db, next) {
-  db.put('key2', 'value', next)
+testPending('put()', async function (db) {
+  return db.put('key2', 'value')
 })
 
-testPending('put() with { sync }', 1, function (db, next) {
+testPending('put() with { sync }', async function (db) {
   // The sync option makes the operation slower and thus more likely to
   // cause a segfault (if closing were to happen during the operation).
-  db.put('key2', 'value', { sync: true }, next)
+  return db.put('key2', 'value', { sync: true })
 })
 
-testPending('del()', 1, function (db, next) {
-  db.del('key', next)
+testPending('del()', async function (db) {
+  return db.del('key')
 })
 
-testPending('del() with { sync }', 1, function (db, next) {
-  db.del('key', { sync: true }, next)
+testPending('del() with { sync }', async function (db) {
+  return db.del('key', { sync: true })
 })
 
-testPending('batch([])', 1, function (db, next) {
-  db.batch([{ type: 'del', key: 'key' }], next)
+testPending('batch([])', async function (db) {
+  return db.batch([{ type: 'del', key: 'key' }])
 })
 
-testPending('batch([]) with { sync }', 1, function (db, next) {
-  db.batch([{ type: 'del', key: 'key' }], { sync: true }, next)
+testPending('batch([]) with { sync }', async function (db) {
+  return db.batch([{ type: 'del', key: 'key' }], { sync: true })
 })
 
-testPending('batch()', 1, function (db, next) {
-  db.batch().del('key').write(next)
+testPending('batch()', async function (db) {
+  return db.batch().del('key').write()
 })
 
-testPending('batch() with { sync }', 1, function (db, next) {
-  db.batch().del('key').write({ sync: true }, next)
+testPending('batch() with { sync }', async function (db) {
+  return db.batch().del('key').write({ sync: true })
 })
 
-testPending('approximateSize()', 1, function (db, next) {
-  db.approximateSize('a', 'z', next)
+testPending('approximateSize()', async function (db) {
+  return db.approximateSize('a', 'z')
 })
 
-testPending('compactRange()', 1, function (db, next) {
-  db.compactRange('a', 'z', next)
+testPending('compactRange()', async function (db) {
+  return db.compactRange('a', 'z')
 })
 
 // Test multiple pending operations, using all of the above.
-testPending('operations', operations.length, function (db, next) {
-  for (const fn of operations.slice(0, -1)) {
-    fn(db, next)
-  }
+testPending('operations', async function (db) {
+  return Promise.all(operations.slice(0, -1).map(fn => fn(db)))
 })

@@ -2,6 +2,10 @@
 
 This document describes breaking changes and how to upgrade. For a complete list of changes including minor and patch releases, please refer to the [changelog](CHANGELOG.md).
 
+## 2.0.0
+
+This release upgrades to `abstract-level` 2.0.0 which adds [hooks](https://github.com/Level/abstract-level#hooks) and drops callbacks, not-found errors and support of Node.js < 16. Please refer to the [upgrade guide of `abstract-level`](https://github.com/Level/abstract-level/blob/v2.0.0/UPGRADING.md). The only thing to add is that the additional methods of `classic-level` like `db.approximateSize()` also don't support callbacks anymore.
+
 ## 1.0.0
 
 **Introducing `classic-level`: a fork of [`leveldown`](https://github.com/Level/leveldown) that implements the [`abstract-level`](https://github.com/Level/abstract-level) interface instead of [`abstract-leveldown`](https://github.com/Level/abstract-leveldown). It thus has the same API as `level` and `levelup` including encodings, promises and events. In addition, you can now choose to use Uint8Array instead of Buffer. Sublevels are builtin.**
