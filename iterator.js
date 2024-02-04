@@ -76,9 +76,17 @@ class Iterator extends AbstractIterator {
     }
   }
 
-  // TODO (v2): read from cache first?
   async _nextv (size, options) {
     this[kFirst] = false
+
+    // If next() was called then empty the cache first
+    if (this[kPosition] < this[kCache].length) {
+      const length = Math.min(size, this[kCache].length - this[kPosition])
+      const chunk = this[kCache].slice(this[kPosition], this[kPosition] + length)
+
+      this[kPosition] += length
+      return chunk
+    }
 
     // Avoid iterator_nextv() call if end was already reached
     if ((this[kState][0] & STATE_ENDED) !== 0) {
