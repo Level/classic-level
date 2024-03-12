@@ -374,6 +374,35 @@ private:
   std::string value_;
 };
 
+struct PoolEntry {
+  PoolEntry (size_t keySize, size_t valueSize)
+    : keySize_(keySize),
+      valueSize_(valueSize) {}
+
+  void ConvertByMode (napi_env env, Mode mode, napi_value& result) const {
+    if (mode == Mode::entries) {
+      napi_create_array_with_length(env, 2, &result);
+
+      napi_value keyElement;
+      napi_value valueElement;
+
+      napi_create_int32(env, keySize_, &keyElement);
+      napi_create_int32(env, valueSize_, &valueElement);
+
+      napi_set_element(env, result, 0, keyElement);
+      napi_set_element(env, result, 1, valueElement);
+    } else if (mode == Mode::keys) {
+      napi_create_int32(env, keySize_, &result);
+    } else {
+      napi_create_int32(env, valueSize_, &result);
+    }
+  }
+
+private:
+  size_t keySize_;
+  size_t valueSize_;
+};
+
 /**
  * Base worker class. Handles the async work. Derived classes can override the
  * following virtual methods (listed in the order in which they're called):
@@ -931,11 +960,12 @@ struct Iterator final : public BaseIterator {
     if (ref_ != NULL) napi_delete_reference(env, ref_);
   }
 
-  bool ReadMany (uint32_t size) {
+  bool ReadMany (uint32_t size, std::vector<char>* pool) {
     cache_.clear();
     cache_.reserve(size);
     size_t bytesRead = 0;
     leveldb::Slice empty;
+    pool->reserve(highWaterMarkBytes_);
 
     while (true) {
       if (!first_) Next();
@@ -946,16 +976,28 @@ struct Iterator final : public BaseIterator {
       if (keys_ && values_) {
         leveldb::Slice k = CurrentKey();
         leveldb::Slice v = CurrentValue();
-        cache_.emplace_back(k, v);
-        bytesRead += k.size() + v.size();
+
+        pool->resize(bytesRead + k.size() + v.size());
+
+        memcpy((&((*pool)[0])) + bytesRead, k.data(), k.size());
+        bytesRead += k.size();
+
+        memcpy((&((*pool)[0])) + bytesRead, v.data(), v.size());
+        bytesRead += v.size();
+
+        cache_.emplace_back(k.size(), v.size());
       } else if (keys_) {
         leveldb::Slice k = CurrentKey();
-        cache_.emplace_back(k, empty);
+        pool->resize(bytesRead + k.size());
+        memcpy((&((*pool)[0])) + bytesRead, k.data(), k.size());
         bytesRead += k.size();
+        cache_.emplace_back(k.size(), 0);
       } else if (values_) {
         leveldb::Slice v = CurrentValue();
-        cache_.emplace_back(empty, v);
+        pool->resize(bytesRead + v.size());
+        memcpy((&((*pool)[0])) + bytesRead, v.data(), v.size());
         bytesRead += v.size();
+        cache_.emplace_back(0, v.size());
       }
 
       if (bytesRead > highWaterMarkBytes_ || cache_.size() >= size) {
@@ -976,7 +1018,7 @@ struct Iterator final : public BaseIterator {
   bool nexting_;
   bool isClosing_;
   BaseWorker* closeWorker_;
-  std::vector<Entry> cache_;
+  std::vector<PoolEntry> cache_;
 
 private:
   napi_ref ref_;
@@ -1803,6 +1845,13 @@ NAPI_METHOD(iterator_close) {
   NAPI_RETURN_UNDEFINED();
 }
 
+void FinalizeArrayBuffer (napi_env env, void* data, void* hint) {
+  if (data) {
+    // TODO: segv
+    // delete (std::vector<char>*) data;
+  }
+}
+
 /**
  * Worker class for nexting an iterator.
  */
@@ -1813,16 +1862,22 @@ struct NextWorker final : public BaseWorker {
               napi_value callback)
     : BaseWorker(env, iterator->database_, callback,
                  "classic_level.iterator.next"),
-      iterator_(iterator), size_(size), ok_() {}
+      iterator_(iterator), size_(size), ok_() {
+    pool_ = new std::vector<char>();
+  }
 
-  ~NextWorker () {}
+  ~NextWorker () {
+    if (pool_) {
+      delete pool_;
+    }
+  }
 
   void DoExecute () override {
     if (!iterator_->DidSeek()) {
       iterator_->SeekToRange();
     }
 
-    ok_ = iterator_->ReadMany(size_);
+    ok_ = iterator_->ReadMany(size_, pool_);
 
     if (!ok_) {
       SetStatus(iterator_->Status());
@@ -1834,20 +1889,22 @@ struct NextWorker final : public BaseWorker {
     napi_value jsArray;
     napi_create_array_with_length(env, size, &jsArray);
 
-    const Encoding ke = iterator_->keyEncoding_;
-    const Encoding ve = iterator_->valueEncoding_;
+    // const Encoding ke = iterator_->keyEncoding_;
+    // const Encoding ve = iterator_->valueEncoding_;
 
     for (uint32_t idx = 0; idx < size; idx++) {
       napi_value element;
-      iterator_->cache_[idx].ConvertByMode(env, Mode::entries, ke, ve, element);
+      iterator_->cache_[idx].ConvertByMode(env, Mode::entries, element);
       napi_set_element(env, jsArray, idx, element);
     }
 
-    napi_value argv[3];
+    napi_value argv[4];
     napi_get_null(env, &argv[0]);
-    argv[1] = jsArray;
-    napi_get_boolean(env, !ok_, &argv[2]);
-    CallFunction(env, callback, 3, argv);
+    napi_create_external_arraybuffer(env, &((*pool_)[0]), pool_->size(), FinalizeArrayBuffer, NULL, &argv[1]);
+    pool_ = NULL; // No longer owned by us
+    argv[2] = jsArray;
+    napi_get_boolean(env, !ok_, &argv[3]);
+    CallFunction(env, callback, 4, argv);
   }
 
   void DoFinally (napi_env env) override {
@@ -1864,7 +1921,8 @@ struct NextWorker final : public BaseWorker {
 
 private:
   Iterator* iterator_;
-  uint32_t size_;
+  std::vector<char>* pool_;
+  const uint32_t size_;
   bool ok_;
 };
 
