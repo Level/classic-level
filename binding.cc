@@ -1901,28 +1901,20 @@ struct BatchWorker final : public PriorityWorker {
   BatchWorker (napi_env env,
                Database* database,
                napi_value callback,
-               leveldb::WriteBatch* batch,
-               const bool sync,
-               const bool hasData)
-    : PriorityWorker(env, database, callback, "classic_level.batch.do"),
-      batch_(batch), hasData_(hasData) {
+               const bool sync)
+    : PriorityWorker(env, database, callback, "classic_level.batch.do") {
     options_.sync = sync;
-  }
-
-  ~BatchWorker () {
-    delete batch_;
   }
 
   void DoExecute () override {
     if (hasData_) {
-      SetStatus(database_->WriteBatch(options_, batch_));
+      SetStatus(database_->WriteBatch(options_, &batch_));
     }
   }
 
-private:
   leveldb::WriteOptions options_;
-  leveldb::WriteBatch* batch_;
-  const bool hasData_;
+  leveldb::WriteBatch batch_;
+  bool hasData_;
 };
 
 /**
@@ -1939,8 +1931,7 @@ NAPI_METHOD(batch_do) {
   uint32_t length;
   napi_get_array_length(env, array, &length);
 
-  leveldb::WriteBatch* batch = new leveldb::WriteBatch();
-  bool hasData = false;
+  BatchWorker* worker = new BatchWorker(env, database, callback, sync);
 
   for (uint32_t i = 0; i < length; i++) {
     napi_value element;
@@ -1954,8 +1945,8 @@ NAPI_METHOD(batch_do) {
       if (!HasProperty(env, element, "key")) continue;
       leveldb::Slice key = ToSlice(env, GetProperty(env, element, "key"));
 
-      batch->Delete(key);
-      if (!hasData) hasData = true;
+      worker->batch_.Delete(key);
+      if (!worker->hasData_) worker->hasData_ = true;
 
       DisposeSliceBuffer(key);
     } else if (type == "put") {
@@ -1965,15 +1956,14 @@ NAPI_METHOD(batch_do) {
       leveldb::Slice key = ToSlice(env, GetProperty(env, element, "key"));
       leveldb::Slice value = ToSlice(env, GetProperty(env, element, "value"));
 
-      batch->Put(key, value);
-      if (!hasData) hasData = true;
+      worker->batch_.Put(key, value);
+      if (!worker->hasData_) worker->hasData_ = true;
 
       DisposeSliceBuffer(key);
       DisposeSliceBuffer(value);
     }
   }
 
-  BatchWorker* worker = new BatchWorker(env, database, callback, batch, sync, hasData);
   worker->Queue(env);
 
   NAPI_RETURN_UNDEFINED();
@@ -1983,38 +1973,38 @@ NAPI_METHOD(batch_do) {
  * Owns a WriteBatch.
  */
 struct Batch {
+  Batch(const Batch&) = delete;
+  Batch(Batch&&) = delete;
+  Batch& operator=(const Batch&) = delete;
+  Batch& operator=(Batch&&) = delete;
+
   Batch (Database* database)
     : database_(database),
-      batch_(new leveldb::WriteBatch()),
       hasData_(false) {}
 
-  ~Batch () {
-    delete batch_;
-  }
-
   void Put (leveldb::Slice key, leveldb::Slice value) {
-    batch_->Put(key, value);
+    batch_.Put(key, value);
     hasData_ = true;
   }
 
   void Del (leveldb::Slice key) {
-    batch_->Delete(key);
+    batch_.Delete(key);
     hasData_ = true;
   }
 
   void Clear () {
-    batch_->Clear();
+    batch_.Clear();
     hasData_ = false;
   }
 
   leveldb::Status Write (bool sync) {
     leveldb::WriteOptions options;
     options.sync = sync;
-    return database_->WriteBatch(options, batch_);
+    return database_->WriteBatch(options, &batch_);
   }
 
   Database* database_;
-  leveldb::WriteBatch* batch_;
+  leveldb::WriteBatch batch_;
   bool hasData_;
 };
 
