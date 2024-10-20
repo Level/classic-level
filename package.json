@@ -21,7 +21,7 @@
     "prepublishOnly": "npm run dependency-check",
     "prebuild-linux-arm": "prebuildify-cross -i linux-armv6 -i linux-armv7 -i linux-arm64-lts -t 18.20.4 --napi --strip",
     "prebuild-android-arm": "prebuildify-cross -i android-armv7 -i android-arm64 -t 18.20.4 --napi --strip",
-    "prebuild-linux-x64": "prebuildify-cross -i centos7-devtoolset7 -i alpine -t 18.20.4 --napi --strip",
+    "prebuild-linux-x64": "prebuildify-cross -i almalinux-devtoolset11 -i alpine -t 18.20.4 --napi --strip",
     "prebuild-darwin-x64+arm64": "prebuildify -t 18.20.4 --napi --strip --arch x64+arm64",
     "prebuild-win32-x86": "prebuildify -t 18.20.4 --napi --strip",
     "prebuild-win32-x64": "prebuildify -t 18.20.4 --napi --strip"
