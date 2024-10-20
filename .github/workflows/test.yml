@@ -8,7 +8,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [16, 18, 20]
+        node: [18, 20, 22]
         arch: [x86, x64]
         exclude:
           - { os: ubuntu-latest, arch: x86 }
@@ -17,11 +17,11 @@ jobs:
     name: ${{ matrix.os }} / Node ${{ matrix.node }} ${{ matrix.arch }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Use node ${{ matrix.node }}
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           architecture: ${{ matrix.arch }}
@@ -35,10 +35,11 @@ jobs:
         uses: codecov/codecov-action@v3
         with:
           file: coverage/lcov.info
-      - name: Test Electron
-        if: ${{ matrix.node == '20' }}
-        uses: GabrielBB/xvfb-action@v1
-        with:
-          run: npm run test-electron
+      - name: Test Electron (Linux)
+        if: matrix.node == '22' && - runner.os == 'Linux'
+        run: xvfb-run npm test-electron
+      - name: Test Electron (non-Linux)
+        if: matrix.node == '22' && - runner.os != 'Linux'
+        run: npm test-electron
       - name: Test GC
         run: npm run test-gc
