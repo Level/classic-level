@@ -38,11 +38,11 @@
     "cross-env": "^7.0.3",
     "dependency-check": "^4.1.0",
     "du": "^1.0.0",
-    "electron": "^18.3.15",
+    "electron": "^30.5.1",
     "glob": "^8.0.1",
     "hallmark": "^4.1.0",
     "mkfiletree": "^2.0.0",
-    "node-gyp": "^9.0.0",
+    "node-gyp": "^10.2.0",
     "nyc": "^15.0.0",
     "prebuildify": "^5.0.0",
     "prebuildify-ci": "^1.0.4",
@@ -66,6 +66,6 @@
     "level"
   ],
   "engines": {
-    "node": ">=16"
+    "node": ">=18"
   }
 }
