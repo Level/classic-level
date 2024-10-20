@@ -91,7 +91,7 @@ const xyz = db.sublevel<string, any>('xyz', { valueEncoding: 'json' })
 
 ## Supported Platforms
 
-We aim to support _at least_ Active LTS and Current Node.js releases, Electron >= 18, as well as any future Node.js and Electron releases thanks to [Node-API](https://nodejs.org/api/n-api.html).
+We aim to support Active LTS and Current Node.js releases, Electron >= 30, as well as any future Node.js and Electron releases thanks to [Node-API](https://nodejs.org/api/n-api.html).
 
 The `classic-level` npm package ships with prebuilt binaries for popular 64-bit platforms as well as ARM, M1, Android (built against Node.js core rather than the [`nodejs-mobile`](https://github.com/JaneaSystems/nodejs-mobile) fork), Alpine (musl), Windows 32-bit, Linux flavors with an old glibc (Debian 8, Ubuntu 14.04, RHEL 7, CentOS 7) and is known to work on:
 
