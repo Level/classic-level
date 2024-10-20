@@ -43,7 +43,7 @@
     "hallmark": "^4.1.0",
     "mkfiletree": "^2.0.0",
     "node-gyp": "^9.0.0",
-    "nyc": "^15.0.0",
+    "nyc": "^17.1.0",
     "prebuildify": "^5.0.0",
     "prebuildify-ci": "^1.0.4",
     "prebuildify-cross": "^5.0.0",
