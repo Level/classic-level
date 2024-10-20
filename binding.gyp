@@ -1,6 +1,7 @@
 {
   "variables": {
-    'openssl_fips': ''
+    'openssl_fips': '',
+    'android_ndk_path': ''
   },
   "targets": [{
     "target_name": "classic_level",
