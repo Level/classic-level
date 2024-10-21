@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.0.0] - 2024-10-21
+
+_If you are upgrading: please see [`UPGRADING.md`](UPGRADING.md)._
+
+### Changed
+
+- **Breaking:** bump `abstract-level` to 2.0.0 ([`dff7a67`](https://github.com/Level/classic-level/commit/dff7a67)) (Vincent Weevers)
+- **Breaking:** remove callbacks and `LEVEL_NOT_FOUND` ([`d5bad80`](https://github.com/Level/classic-level/commit/d5bad80)) (Vincent Weevers)
+- Update README for v2, with a new approach ([`a078b45`](https://github.com/Level/classic-level/commit/a078b45)) (Vincent Weevers)
+- Refactor to put more trust in abstract-level state ([`c2426bb`](https://github.com/Level/classic-level/commit/c2426bb)) (Vincent Weevers)
+- Use headers of 18.20.4 for prebuilds ([`13bcc68`](https://github.com/Level/classic-level/commit/13bcc68)) (Vincent Weevers)
+- Swap CentOS image with AlmaLinux (for linux prebuilds) ([`a3be44d`](https://github.com/Level/classic-level/commit/a3be44d)) (Vincent Weevers)
+
+### Added
+
+- Support `signal` option on iterators ([`6e196dc`](https://github.com/Level/classic-level/commit/6e196dc)) (Vincent Weevers)
+
+### Removed
+
+- **Breaking:** drop Node.js < 18 and Electron < 30 ([`c177f3c`](https://github.com/Level/classic-level/commit/c177f3c), [`e18d5c7`](https://github.com/Level/classic-level/commit/e18d5c7)) (Vincent Weevers)
+- Stop testing on FreeBSD ([`ce99a79`](https://github.com/Level/classic-level/commit/ce99a79)) (Vincent Weevers)
+- Remove `levelup` compatibility check ([`b086bc8`](https://github.com/Level/classic-level/commit/b086bc8)) (Vincent Weevers)
+
+### Fixed
+
+- Fix cache bug in `iterator.nextv()` ([`1063558`](https://github.com/Level/classic-level/commit/1063558)) (Vincent Weevers)
+- Create snapshot for `get()` synchronously ([`50e03dc`](https://github.com/Level/classic-level/commit/50e03dc)) (Vincent Weevers)
+
 ## [1.4.1] - 2024-01-20
 
 ### Fixed
@@ -51,6 +79,8 @@ _Not released to npm because of a race issue, which was fixed in 1.4.1._
 ## [1.0.0] - 2022-03-04
 
 _:seedling: Initial release. If you are upgrading from `leveldown` please see [`UPGRADING.md`](UPGRADING.md)._
+
+[2.0.0]: https://github.com/Level/classic-level/releases/tag/v2.0.0
 
 [1.4.1]: https://github.com/Level/classic-level/releases/tag/v1.4.1
 
