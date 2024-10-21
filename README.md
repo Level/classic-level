@@ -13,34 +13,6 @@
 [![Common Changelog](https://common-changelog.org/badge.svg)](https://common-changelog.org)
 [![Donate](https://img.shields.io/badge/donate-orange?logo=open-collective\&logoColor=fff)](https://opencollective.com/level)
 
-## Table of Contents
-
-<details><summary>Click to expand</summary>
-
-- [Usage](#usage)
-- [Supported Platforms](#supported-platforms)
-- [API](#api)
-  - [`db = new ClassicLevel(location[, options])`](#db--new-classiclevellocation-options)
-  - [Opening](#opening)
-  - [Closing](#closing)
-  - [Reading](#reading)
-  - [Writing](#writing)
-  - [Additional Methods](#additional-methods)
-    - [`db.location`](#dblocation)
-    - [`db.approximateSize(start, end[, options])`](#dbapproximatesizestart-end-options)
-    - [`db.compactRange(start, end[, options])`](#dbcompactrangestart-end-options)
-    - [`db.getProperty(property)`](#dbgetpropertyproperty)
-    - [`ClassicLevel.destroy(location)`](#classicleveldestroylocation)
-    - [`ClassicLevel.repair(location)`](#classiclevelrepairlocation)
-- [Development](#development)
-  - [Getting Started](#getting-started)
-  - [Contributing](#contributing)
-  - [Publishing](#publishing)
-- [Donate](#donate)
-- [License](#license)
-
-</details>
-
 ## Usage
 
 ```js
