@@ -39,7 +39,7 @@
     "dependency-check": "^4.1.0",
     "du": "^1.0.0",
     "electron": "^30.5.1",
-    "glob": "^8.0.1",
+    "glob": "^11.0.0",
     "hallmark": "^5.0.1",
     "mkfiletree": "^2.0.0",
     "node-gyp": "^10.2.0",
