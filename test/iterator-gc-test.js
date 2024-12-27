@@ -48,3 +48,27 @@ test('db without ref does not get GCed while iterating', async function (t) {
   // Which as luck would have it, also allows us to properly end this test.
   return it.db.close()
 })
+
+// Same as above but also nullifying the iterator
+test('db and iterator without ref does not get GCed while iterating', async function (t) {
+  let db = testCommon.factory()
+
+  await db.open()
+  await db.batch(sourceData.slice())
+
+  let it = db.iterator({
+    highWaterMarkBytes: sourceData.length * 32
+  })
+
+  t.is((await it.nextv(1000)).length, sourceData.length, 'got data')
+
+  // Remove references
+  it = null
+  db = null
+
+  if (global.gc) {
+    global.gc()
+  } else {
+    await new Promise(resolve => setTimeout(resolve, 1e3))
+  }
+})

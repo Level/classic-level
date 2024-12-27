@@ -18,7 +18,9 @@
  * Forward declarations.
  */
 struct Database;
+struct Resource;
 struct Iterator;
+struct ExplicitSnapshot;
 static leveldb::Status threadsafe_open(const leveldb::Options &options,
                                        bool multithreading,
                                        Database &db_instance);
@@ -52,6 +54,10 @@ static std::map<std::string, LevelDbHandle> db_handles;
 #define NAPI_BATCH_CONTEXT() \
   Batch* batch = NULL; \
   NAPI_STATUS_THROWS(napi_get_value_external(env, argv[0], (void**)&batch));
+
+#define NAPI_SNAPSHOT_CONTEXT() \
+  ExplicitSnapshot* snapshot = NULL; \
+  NAPI_STATUS_THROWS(napi_get_value_external(env, argv[0], (void**)&snapshot));
 
 #define NAPI_RETURN_UNDEFINED() \
   return 0;
@@ -527,14 +533,14 @@ private:
 };
 
 /**
- * Owns the LevelDB storage, cache, filter policy and iterators.
+ * Owns the LevelDB storage, cache, filter policy and resources.
  */
 struct Database {
   Database ()
     : db_(NULL),
       blockCache_(NULL),
       filterPolicy_(leveldb::NewBloomFilterPolicy(10)),
-      currentIteratorId_(0),
+      resourceSequence_(0),
       pendingCloseWorker_(NULL),
       ref_(NULL),
       priorityWork_(0) {}
@@ -611,24 +617,15 @@ struct Database {
     return db_->ReleaseSnapshot(snapshot);
   }
 
-  void AttachIterator (napi_env env, uint32_t id, Iterator* iterator) {
-    iterators_[id] = iterator;
-    IncrementPriorityWork(env);
-  }
-
-  void DetachIterator (napi_env env, uint32_t id) {
-    iterators_.erase(id);
-    DecrementPriorityWork(env);
-  }
-
+  // The env argument is unused but reminds us to increment priorityWork_
+  // only in the JavaScript main thread to avoid needing a lock around
+  // that and pendingCloseWorker_.
   void IncrementPriorityWork (napi_env env) {
-    napi_reference_ref(env, ref_, &priorityWork_);
+    priorityWork_++;
   }
 
   void DecrementPriorityWork (napi_env env) {
-    napi_reference_unref(env, ref_, &priorityWork_);
-
-    if (priorityWork_ == 0 && pendingCloseWorker_ != NULL) {
+    if (--priorityWork_ == 0 && pendingCloseWorker_ != NULL) {
       pendingCloseWorker_->Queue(env);
       pendingCloseWorker_ = NULL;
     }
@@ -641,13 +638,13 @@ struct Database {
   leveldb::DB* db_;
   leveldb::Cache* blockCache_;
   const leveldb::FilterPolicy* filterPolicy_;
-  uint32_t currentIteratorId_;
+  uint32_t resourceSequence_;
   BaseWorker *pendingCloseWorker_;
-  std::map< uint32_t, Iterator * > iterators_;
+  std::map<uint32_t, Resource*> resources_;
   napi_ref ref_;
 
 private:
-  uint32_t priorityWork_;
+  std::atomic<uint32_t> priorityWork_;
   std::string location_;
 
   // for separation of concerns the threadsafe functionality was kept at the global
@@ -709,6 +706,60 @@ leveldb::Status threadsafe_close(Database &db_instance) {
 }
 
 /**
+ * Represents an object that has a strong reference until explicitly closed. In
+ * addition, resources are tracked in database->resources in order to close
+ * them when the Node.js environment is tore down.
+ */
+struct Resource {
+  Resource (Database* database)
+    : database(database),
+      id_(++database->resourceSequence_),
+      ref_(NULL) {
+  }
+
+  virtual ~Resource () { }
+  virtual void CloseResource () = 0;
+
+  void Attach (napi_env env, napi_value context) {
+    napi_create_reference(env, context, 1, &ref_);
+    database->resources_[id_] = this;
+  }
+
+  void Detach (napi_env env) {
+    database->resources_.erase(id_);
+    if (ref_ != NULL) napi_delete_reference(env, ref_);
+  }
+
+  static void CollectGarbage (napi_env env, void* data, void* hint) {
+    if (data) {
+      delete (Resource*)data;
+    }
+  }
+
+  Database* database;
+
+private:
+  const uint32_t id_;
+  napi_ref ref_;
+};
+
+/**
+ * Explicit snapshot of database.
+ */
+struct ExplicitSnapshot final : public Resource {
+  ExplicitSnapshot (Database* database)
+    : Resource(database),
+      nut(database->NewSnapshot()) {
+  }
+
+  void CloseResource () override {
+    database->ReleaseSnapshot(nut);
+  }
+
+  const leveldb::Snapshot* nut;
+};
+
+/**
  * Base worker class for doing async work that defers closing the database.
  */
 struct PriorityWorker : public BaseWorker {
@@ -736,7 +787,8 @@ struct BaseIterator {
                std::string* gt,
                std::string* gte,
                const int limit,
-               const bool fillCache)
+               const bool fillCache,
+               ExplicitSnapshot* snapshot)
     : database_(database),
       hasClosed_(false),
       didSeek_(false),
@@ -749,7 +801,15 @@ struct BaseIterator {
       count_(0) {
     options_ = new leveldb::ReadOptions();
     options_->fill_cache = fillCache;
-    options_->snapshot = database->NewSnapshot();
+
+    if (snapshot == NULL) {
+      implicitSnapshot_ = database_->NewSnapshot();
+      options_->snapshot = implicitSnapshot_;
+    } else {
+      implicitSnapshot_ = NULL;
+      options_->snapshot = snapshot->nut;
+    }
+
     dbIterator_ = database_->NewIterator(options_);
   }
 
@@ -833,12 +893,16 @@ struct BaseIterator {
     }
   }
 
-  void Close () {
+  void CloseIterator () {
     if (!hasClosed_) {
       hasClosed_ = true;
+
       delete dbIterator_;
       dbIterator_ = NULL;
-      database_->ReleaseSnapshot(options_->snapshot);
+
+      if (implicitSnapshot_) {
+        database_->ReleaseSnapshot(implicitSnapshot_);
+      }
     }
   }
 
@@ -913,14 +977,14 @@ private:
   const int limit_;
   int count_;
   leveldb::ReadOptions* options_;
+  const leveldb::Snapshot* implicitSnapshot_;
 };
 
 /**
  * Extends BaseIterator for reading it from JS land.
  */
-struct Iterator final : public BaseIterator {
+struct Iterator final : public BaseIterator, public Resource {
   Iterator (Database* database,
-            const uint32_t id,
             const bool reverse,
             const bool keys,
             const bool values,
@@ -933,9 +997,10 @@ struct Iterator final : public BaseIterator {
             const Encoding keyEncoding,
             const Encoding valueEncoding,
             const uint32_t highWaterMarkBytes,
-            unsigned char* state)
-    : BaseIterator(database, reverse, lt, lte, gt, gte, limit, fillCache),
-      id_(id),
+            unsigned char* state,
+            ExplicitSnapshot* snapshot)
+    : BaseIterator(database, reverse, lt, lte, gt, gte, limit, fillCache, snapshot),
+      Resource(database),
       keys_(keys),
       values_(values),
       keyEncoding_(keyEncoding),
@@ -943,23 +1008,15 @@ struct Iterator final : public BaseIterator {
       highWaterMarkBytes_(highWaterMarkBytes),
       first_(true),
       nexting_(false),
-      isClosing_(false),
       aborted_(false),
       ended_(false),
-      state_(state),
-      ref_(NULL) {
+      state_(state) {
   }
 
   ~Iterator () {}
 
-  void Attach (napi_env env, napi_value context) {
-    napi_create_reference(env, context, 1, &ref_);
-    database_->AttachIterator(env, id_, this);
-  }
-
-  void Detach (napi_env env) {
-    database_->DetachIterator(env, id_);
-    if (ref_ != NULL) napi_delete_reference(env, ref_);
+  void CloseResource () override {
+    BaseIterator::CloseIterator();
   }
 
   bool ReadMany (uint32_t size) {
@@ -998,7 +1055,6 @@ struct Iterator final : public BaseIterator {
     return false;
   }
 
-  const uint32_t id_;
   const bool keys_;
   const bool values_;
   const Encoding keyEncoding_;
@@ -1006,14 +1062,10 @@ struct Iterator final : public BaseIterator {
   const uint32_t highWaterMarkBytes_;
   bool first_;
   bool nexting_;
-  bool isClosing_;
   std::atomic<bool> aborted_;
   bool ended_;
   unsigned char* state_;
   std::vector<Entry> cache_;
-
-private:
-  napi_ref ref_;
 };
 
 /**
@@ -1031,15 +1083,10 @@ static void env_cleanup_hook (void* arg) {
   // where it's our responsibility to clean up. Note also, the following code must
   // be a safe noop if called before db_open() or after db_close().
   if (database && database->db_ != NULL) {
-    std::map<uint32_t, Iterator*> iterators = database->iterators_;
-    std::map<uint32_t, Iterator*>::iterator it;
-
-    // TODO: does not do `napi_delete_reference(env, iterator->ref_)`. Problem?
-    for (it = iterators.begin(); it != iterators.end(); ++it) {
-      it->second->Close();
+    for (const auto& kv : database->resources_) {
+      kv.second->CloseResource();
     }
 
-    // Having closed the iterators (and released snapshots) we can safely close.
     database->CloseDatabase();
   }
 }
@@ -1068,8 +1115,8 @@ NAPI_METHOD(db_init) {
                                           FinalizeDatabase,
                                           NULL, &result));
 
-  // Reference counter to prevent GC of database while priority workers are active
-  NAPI_STATUS_THROWS(napi_create_reference(env, result, 0, &database->ref_));
+  // Prevent GC of database before close()
+  NAPI_STATUS_THROWS(napi_create_reference(env, result, 1, &database->ref_));
 
   return result;
 }
@@ -1162,6 +1209,9 @@ NAPI_METHOD(db_open) {
 
 /**
  * Worker class for closing a database
+ *
+ * TODO: once we've moved the PriorityWork logic to AbstractLevel, check if
+ * CloseDatabase is fast enough to be done synchronously.
  */
 struct CloseWorker final : public BaseWorker {
   CloseWorker (napi_env env, Database* database, napi_deferred deferred)
@@ -1171,6 +1221,11 @@ struct CloseWorker final : public BaseWorker {
 
   void DoExecute () override {
     database_->CloseDatabase();
+  }
+
+  void DoFinally (napi_env env) override {
+    napi_reference_unref(env, database_->ref_, NULL);
+    BaseWorker::DoFinally(env);
   }
 };
 
@@ -1186,8 +1241,8 @@ NAPI_METHOD(db_close) {
   NAPI_DB_CONTEXT();
   NAPI_PROMISE();
 
-  // AbstractLevel should not call _close() before iterators are closed
-  assert(database->iterators_.size() == 0);
+  // AbstractLevel should not call _close() before resources are closed
+  assert(database->resources_.size() == 0);
 
   CloseWorker* worker = new CloseWorker(env, database, deferred);
 
@@ -1256,12 +1311,20 @@ struct GetWorker final : public PriorityWorker {
              napi_deferred deferred,
              leveldb::Slice key,
              const Encoding encoding,
-             const bool fillCache)
+             const bool fillCache,
+             ExplicitSnapshot* snapshot)
     : PriorityWorker(env, database, deferred, "classic_level.db.get"),
       key_(key),
       encoding_(encoding) {
     options_.fill_cache = fillCache;
-    options_.snapshot = database->NewSnapshot();
+
+    if (snapshot == NULL) {
+      implicitSnapshot_ = database->NewSnapshot();
+      options_.snapshot = implicitSnapshot_;
+    } else {
+      implicitSnapshot_ = NULL;
+      options_.snapshot = snapshot->nut;
+    }
   }
 
   ~GetWorker () {
@@ -1270,7 +1333,10 @@ struct GetWorker final : public PriorityWorker {
 
   void DoExecute () override {
     SetStatus(database_->Get(options_, key_, value_));
-    database_->ReleaseSnapshot(options_.snapshot);
+
+    if (implicitSnapshot_) {
+      database_->ReleaseSnapshot(implicitSnapshot_);
+    }
   }
 
   void HandleOKCallback (napi_env env, napi_deferred deferred) override {
@@ -1284,13 +1350,14 @@ private:
   leveldb::Slice key_;
   std::string value_;
   const Encoding encoding_;
+  const leveldb::Snapshot* implicitSnapshot_;
 };
 
 /**
  * Gets a value from a database.
  */
 NAPI_METHOD(db_get) {
-  NAPI_ARGV(4);
+  NAPI_ARGV(5);
   NAPI_DB_CONTEXT();
   NAPI_PROMISE();
 
@@ -1298,8 +1365,11 @@ NAPI_METHOD(db_get) {
   const Encoding encoding = GetEncoding(env, argv[2]);
   const bool fillCache = BooleanValue(env, argv[3], true);
 
+  ExplicitSnapshot* snapshot = NULL;
+  napi_get_value_external(env, argv[4], (void**)&snapshot);
+
   GetWorker* worker = new GetWorker(
-    env, database, deferred, key, encoding, fillCache
+    env, database, deferred, key, encoding, fillCache, snapshot
   );
 
   worker->Queue(env);
@@ -1315,11 +1385,19 @@ struct GetManyWorker final : public PriorityWorker {
                  std::vector<std::string> keys,
                  napi_deferred deferred,
                  const Encoding valueEncoding,
-                 const bool fillCache)
+                 const bool fillCache,
+                 ExplicitSnapshot* snapshot)
     : PriorityWorker(env, database, deferred, "classic_level.get.many"),
       keys_(std::move(keys)), valueEncoding_(valueEncoding) {
       options_.fill_cache = fillCache;
-      options_.snapshot = database->NewSnapshot();
+
+      if (snapshot == NULL) {
+        implicitSnapshot_ = database->NewSnapshot();
+        options_.snapshot = implicitSnapshot_;
+      } else {
+        implicitSnapshot_ = NULL;
+        options_.snapshot = snapshot->nut;
+      }
     }
 
   void DoExecute () override {
@@ -1344,7 +1422,9 @@ struct GetManyWorker final : public PriorityWorker {
       }
     }
 
-    database_->ReleaseSnapshot(options_.snapshot);
+    if (implicitSnapshot_) {
+      database_->ReleaseSnapshot(implicitSnapshot_);
+    }
   }
 
   void HandleOKCallback (napi_env env, napi_deferred deferred) override {
@@ -1368,13 +1448,14 @@ private:
   const std::vector<std::string> keys_;
   const Encoding valueEncoding_;
   std::vector<std::string*> cache_;
+  const leveldb::Snapshot* implicitSnapshot_;
 };
 
 /**
  * Gets many values from a database.
  */
 NAPI_METHOD(db_get_many) {
-  NAPI_ARGV(3);
+  NAPI_ARGV(4);
   NAPI_DB_CONTEXT();
   NAPI_PROMISE();
 
@@ -1383,8 +1464,17 @@ NAPI_METHOD(db_get_many) {
   const Encoding valueEncoding = GetEncoding(env, options, "valueEncoding");
   const bool fillCache = BooleanProperty(env, options, "fillCache", true);
 
+  ExplicitSnapshot* snapshot = NULL;
+  napi_get_value_external(env, argv[3], (void**)&snapshot);
+
   GetManyWorker* worker = new GetManyWorker(
-    env, database, keys, deferred, valueEncoding, fillCache
+    env,
+    database,
+    keys,
+    deferred,
+    valueEncoding,
+    fillCache,
+    snapshot
   );
 
   worker->Queue(env);
@@ -1446,9 +1536,10 @@ struct ClearWorker final : public PriorityWorker {
                std::string* lt,
                std::string* lte,
                std::string* gt,
-               std::string* gte)
+               std::string* gte,
+               ExplicitSnapshot* snapshot)
     : PriorityWorker(env, database, deferred, "classic_level.db.clear") {
-    iterator_ = new BaseIterator(database, reverse, lt, lte, gt, gte, limit, false);
+    iterator_ = new BaseIterator(database, reverse, lt, lte, gt, gte, limit, false, snapshot);
     writeOptions_ = new leveldb::WriteOptions();
     writeOptions_->sync = false;
   }
@@ -1486,7 +1577,7 @@ struct ClearWorker final : public PriorityWorker {
       batch.Clear();
     }
 
-    iterator_->Close();
+    iterator_->CloseIterator();
   }
 
 private:
@@ -1498,7 +1589,7 @@ private:
  * Delete a range from a database.
  */
 NAPI_METHOD(db_clear) {
-  NAPI_ARGV(2);
+  NAPI_ARGV(3);
   NAPI_DB_CONTEXT();
   NAPI_PROMISE();
 
@@ -1512,8 +1603,11 @@ NAPI_METHOD(db_clear) {
   std::string* gt = RangeOption(env, options, "gt");
   std::string* gte = RangeOption(env, options, "gte");
 
+  ExplicitSnapshot* snapshot = NULL;
+  napi_get_value_external(env, argv[2], (void**)&snapshot);
+
   ClearWorker* worker = new ClearWorker(
-    env, database, deferred, reverse, limit, lt, lte, gt, gte
+    env, database, deferred, reverse, limit, lt, lte, gt, gte, snapshot
   );
 
   worker->Queue(env);
@@ -1704,19 +1798,10 @@ NAPI_METHOD(repair_db) {
 }
 
 /**
- * Runs when an Iterator is garbage collected.
- */
-static void FinalizeIterator (napi_env env, void* data, void* hint) {
-  if (data) {
-    delete (Iterator*)data;
-  }
-}
-
-/**
  * Create an iterator.
  */
 NAPI_METHOD(iterator_init) {
-  NAPI_ARGV(3);
+  NAPI_ARGV(4);
   NAPI_DB_CONTEXT();
 
   unsigned char* state = 0;
@@ -1739,19 +1824,27 @@ NAPI_METHOD(iterator_init) {
   std::string* gt = RangeOption(env, options, "gt");
   std::string* gte = RangeOption(env, options, "gte");
 
-  const uint32_t id = database->currentIteratorId_++;
-  Iterator* iterator = new Iterator(database, id, reverse, keys,
-                                    values, limit, lt, lte, gt, gte, fillCache,
-                                    keyEncoding, valueEncoding, highWaterMarkBytes,
-                                    state);
-  napi_value result;
+  ExplicitSnapshot* snapshot = NULL;
+  napi_get_value_external(env, argv[3], (void**)&snapshot);
 
+  Iterator* iterator = new Iterator(
+    database,
+    reverse,
+    keys, values,
+    limit,
+    lt, lte, gt, gte,
+    fillCache,
+    keyEncoding, valueEncoding,
+    highWaterMarkBytes,
+    state,
+    snapshot
+  );
+
+  napi_value result;
   NAPI_STATUS_THROWS(napi_create_external(env, iterator,
-                                          FinalizeIterator,
+                                          Resource::CollectGarbage,
                                           NULL, &result));
 
-  // Prevent GC of JS object before the iterator is closed (explicitly or on
-  // db close) and keep track of non-closed iterators to close them on db close.
   iterator->Attach(env, result);
 
   return result;
@@ -1765,7 +1858,6 @@ NAPI_METHOD(iterator_seek) {
   NAPI_ITERATOR_CONTEXT();
 
   // AbstractIterator should not call _seek() after _close()
-  assert(!iterator->isClosing_);
   assert(!iterator->hasClosed_);
 
   leveldb::Slice target = ToSlice(env, argv[1]);
@@ -1778,48 +1870,20 @@ NAPI_METHOD(iterator_seek) {
 }
 
 /**
- * Worker class for closing an iterator
- */
-struct CloseIteratorWorker final : public BaseWorker {
-  CloseIteratorWorker (napi_env env, Iterator* iterator, napi_deferred deferred)
-    : BaseWorker(env, iterator->database_, deferred, "classic_level.iterator.close"),
-      iterator_(iterator) {}
-
-  ~CloseIteratorWorker () {}
-
-  void DoExecute () override {
-    iterator_->Close();
-  }
-
-  void DoFinally (napi_env env) override {
-    iterator_->Detach(env);
-    BaseWorker::DoFinally(env);
-  }
-
-private:
-  Iterator* iterator_;
-};
-
-/**
  * Closes an iterator.
  */
 NAPI_METHOD(iterator_close) {
   NAPI_ARGV(1);
   NAPI_ITERATOR_CONTEXT();
-  NAPI_PROMISE();
 
-  // AbstractIterator should not call _close() more than once
-  assert(!iterator->isClosing_);
+  // AbstractIterator should not call _close() more than once or while nexting
   assert(!iterator->hasClosed_);
-
-  // AbstractIterator should not call _close() while next() is in-progress
   assert(!iterator->nexting_);
 
-  CloseIteratorWorker* worker = new CloseIteratorWorker(env, iterator, deferred);
-  iterator->isClosing_ = true;
-  worker->Queue(env);
+  iterator->CloseResource();
+  iterator->Detach(env);
 
-  return promise;
+  NAPI_RETURN_UNDEFINED();
 }
 
 /**
@@ -1837,7 +1901,7 @@ NAPI_METHOD(iterator_abort) {
  */
 struct NextWorker final : public BaseWorker {
   NextWorker (napi_env env, Iterator* iterator, uint32_t size, napi_deferred deferred)
-    : BaseWorker(env, iterator->database_, deferred, "classic_level.iterator.next"),
+    : BaseWorker(env, iterator->database, deferred, "classic_level.iterator.next"),
       iterator_(iterator), size_(size), ok_() {}
 
   ~NextWorker () {}
@@ -1909,7 +1973,6 @@ NAPI_METHOD(iterator_nextv) {
   if (size == 0) size = 1;
 
   // AbstractIterator should not call _next() or _nextv() after _close()
-  assert(!iterator->isClosing_);
   assert(!iterator->hasClosed_);
 
   if (iterator->ended_) {
@@ -2173,6 +2236,41 @@ NAPI_METHOD(batch_write) {
 }
 
 /**
+ * Create a snapshot context.
+ */
+NAPI_METHOD(snapshot_init) {
+  NAPI_ARGV(1);
+  NAPI_DB_CONTEXT();
+
+  ExplicitSnapshot* snapshot = new ExplicitSnapshot(database);
+
+  napi_value context;
+  NAPI_STATUS_THROWS(napi_create_external(
+    env,
+    snapshot,
+    Resource::CollectGarbage,
+    NULL,
+    &context
+  ));
+
+  snapshot->Attach(env, context);
+  return context;
+}
+
+/**
+ * Closes the snapshot.
+ */
+NAPI_METHOD(snapshot_close) {
+  NAPI_ARGV(1);
+  NAPI_SNAPSHOT_CONTEXT();
+
+  snapshot->CloseResource();
+  snapshot->Detach(env);
+
+  NAPI_RETURN_UNDEFINED();
+}
+
+/**
  * All exported functions.
  */
 NAPI_INIT() {
@@ -2203,4 +2301,7 @@ NAPI_INIT() {
   NAPI_EXPORT_FUNCTION(batch_del);
   NAPI_EXPORT_FUNCTION(batch_clear);
   NAPI_EXPORT_FUNCTION(batch_write);
+
+  NAPI_EXPORT_FUNCTION(snapshot_init);
+  NAPI_EXPORT_FUNCTION(snapshot_close);
 }
