@@ -22,7 +22,6 @@ class ClassicLevel extends AbstractLevel {
         utf8: true,
         view: true
       },
-      seek: true,
       createIfMissing: true,
       errorIfExists: true,
       additionalMethods: {

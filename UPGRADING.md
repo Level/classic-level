@@ -2,6 +2,10 @@
 
 This document describes breaking changes and how to upgrade. For a complete list of changes including minor and patch releases, please refer to the [changelog](CHANGELOG.md).
 
+## 3.0.0
+
+This release upgrades to `abstract-level` 3. Please see its [upgrade guide](https://github.com/Level/abstract-level/blob/v3.0.0/UPGRADING.md). Note that `classic-level` already dropped support of Node.js 16. The only relevant breaking change is the removal of `put`, `del` & `batch` events.
+
 ## 2.0.0
 
 This release upgrades to `abstract-level` 2.0.0 which adds [hooks](https://github.com/Level/abstract-level#hooks) and drops callbacks, not-found errors and support of Node.js < 16. Please refer to the [upgrade guide of `abstract-level`](https://github.com/Level/abstract-level/blob/v2.0.0/UPGRADING.md). The only thing to add is that `classic-level` also drops Node.js 16 and Electron < 30, and that the additional methods of `classic-level` like `db.approximateSize()` similarly don't support callbacks anymore.
