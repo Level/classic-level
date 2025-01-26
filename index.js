@@ -1,6 +1,6 @@
 'use strict'
 
-const { AbstractLevel } = require('abstract-level')
+const { AbstractLevel, AbstractSnapshot } = require('abstract-level')
 const ModuleError = require('module-error')
 const fsp = require('fs/promises')
 const binding = require('./binding')
@@ -24,6 +24,7 @@ class ClassicLevel extends AbstractLevel {
       },
       createIfMissing: true,
       errorIfExists: true,
+      explicitSnapshots: true,
       additionalMethods: {
         approximateSize: true,
         compactRange: true
@@ -62,12 +63,18 @@ class ClassicLevel extends AbstractLevel {
       this[kContext],
       key,
       encodingEnum(options.valueEncoding),
-      options.fillCache
+      options.fillCache,
+      options.snapshot?.[kContext]
     )
   }
 
   async _getMany (keys, options) {
-    return binding.db_get_many(this[kContext], keys, options)
+    return binding.db_get_many(
+      this[kContext],
+      keys,
+      options,
+      options.snapshot?.[kContext]
+    )
   }
 
   async _del (key, options) {
@@ -75,7 +82,11 @@ class ClassicLevel extends AbstractLevel {
   }
 
   async _clear (options) {
-    return binding.db_clear(this[kContext], options)
+    return binding.db_clear(
+      this[kContext],
+      options,
+      options.snapshot?.[kContext]
+    )
   }
 
   _chainedBatch () {
@@ -144,7 +155,16 @@ class ClassicLevel extends AbstractLevel {
   }
 
   _iterator (options) {
-    return new Iterator(this, this[kContext], options)
+    return new Iterator(
+      this,
+      this[kContext],
+      options,
+      options.snapshot?.[kContext]
+    )
+  }
+
+  _snapshot (options) {
+    return new Snapshot(this[kContext], options)
   }
 
   static async destroy (location) {
@@ -161,6 +181,19 @@ class ClassicLevel extends AbstractLevel {
     }
 
     return binding.repair_db(location)
+  }
+}
+
+// Defined here so that both ClassicLevel and Snapshot can access kContext
+class Snapshot extends AbstractSnapshot {
+  constructor (context, options) {
+    super(options)
+    this[kContext] = binding.snapshot_init(context)
+  }
+
+  async _close () {
+    // This is synchronous because that's faster than creating async work
+    binding.snapshot_close(this[kContext])
   }
 }
 

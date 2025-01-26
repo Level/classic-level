@@ -21,11 +21,11 @@ const STATE_ENDED = 1
 // so it'll typically just make one nextv(1000) call and there's
 // no performance gain in overriding _all().
 class Iterator extends AbstractIterator {
-  constructor (db, context, options) {
+  constructor (db, context, options, snapshotCtx) {
     super(db, options)
 
     this[kState] = new Uint8Array(1)
-    this[kContext] = binding.iterator_init(context, this[kState], options)
+    this[kContext] = binding.iterator_init(context, this[kState], options, snapshotCtx)
     this[kFirst] = true
     this[kCache] = empty
     this[kPosition] = 0
@@ -104,7 +104,8 @@ class Iterator extends AbstractIterator {
       this[kSignal] = null
     }
 
-    return binding.iterator_close(this[kContext])
+    // This is synchronous because that's faster than creating async work
+    binding.iterator_close(this[kContext])
   }
 
   [kAbort] () {
