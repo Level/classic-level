@@ -4,6 +4,8 @@ import {
   AbstractOpenOptions,
   AbstractGetOptions,
   AbstractGetManyOptions,
+  AbstractHasOptions,
+  AbstractHasManyOptions,
   AbstractPutOptions,
   AbstractDelOptions,
   AbstractBatchOperation,
@@ -16,6 +18,7 @@ import {
   AbstractKeyIteratorOptions,
   AbstractValueIterator,
   AbstractValueIteratorOptions,
+  AbstractSnapshot,
   Transcoder
 } from 'abstract-level'
 
@@ -54,6 +57,12 @@ declare class ClassicLevel<KDefault = string, VDefault = string>
   getMany (keys: KDefault[]): Promise<(VDefault | undefined)[]>
   getMany<K = KDefault, V = VDefault> (keys: K[], options: GetManyOptions<K, V>): Promise<(V | undefined)[]>
 
+  has (key: KDefault): Promise<boolean>
+  has<K = KDefault> (key: K, options: HasOptions<K>): Promise<boolean>
+
+  hasMany (keys: KDefault[]): Promise<boolean[]>
+  hasMany<K = KDefault> (keys: K[], options: HasManyOptions<K>): Promise<boolean[]>
+
   put (key: KDefault, value: VDefault): Promise<void>
   put<K = KDefault, V = VDefault> (key: K, value: V, options: PutOptions<K, V>): Promise<void>
 
@@ -72,6 +81,8 @@ declare class ClassicLevel<KDefault = string, VDefault = string>
 
   values (): ValueIterator<typeof this, KDefault, VDefault>
   values<K = KDefault, V = VDefault> (options: ValueIteratorOptions<K, V>): ValueIterator<typeof this, K, V>
+
+  snapshot (options?: any | undefined): Snapshot
 
   /**
    * Get the approximate number of bytes of file system space used by the range
@@ -198,15 +209,15 @@ export interface OpenOptions extends AbstractOpenOptions {
   /**
    * Allows multi-threaded access to a single DB instance for sharing a DB
    * across multiple worker threads within the same process.
-   * 
+   *
    * @defaultValue `false`
    */
   multithreading?: boolean | undefined
 }
 
 /**
- * Additional options for the {@link ClassicLevel.get} and {@link ClassicLevel.getMany}
- * methods.
+ * Additional options for the {@link ClassicLevel.get}, {@link ClassicLevel.getMany},
+ * {@link ClassicLevel.has} and {@link ClassicLevel.hasMany} methods.
  */
 declare interface ReadOptions {
   /**
@@ -228,6 +239,16 @@ export interface GetOptions<K, V> extends AbstractGetOptions<K, V>, ReadOptions 
  * Options for the {@link ClassicLevel.getMany} method.
  */
 export interface GetManyOptions<K, V> extends AbstractGetManyOptions<K, V>, ReadOptions {}
+
+/**
+ * Options for the {@link ClassicLevel.has} method.
+ */
+export interface HasOptions<K> extends AbstractHasOptions<K>, ReadOptions {}
+
+/**
+ * Options for the {@link ClassicLevel.hasMany} method.
+ */
+export interface HasManyOptions<K> extends AbstractHasManyOptions<K>, ReadOptions {}
 
 /**
  * Additional options for the {@link ClassicLevel.iterator}, {@link ClassicLevel.keys}
@@ -315,3 +336,5 @@ export type ValueIterator<TDatabase, K, V> = AbstractValueIterator<TDatabase, K,
 export type IteratorOptions<K, V> = AbstractIteratorOptions<K, V> & AdditionalIteratorOptions
 export type KeyIteratorOptions<K> = AbstractKeyIteratorOptions<K> & AdditionalIteratorOptions
 export type ValueIteratorOptions<K, V> = AbstractValueIteratorOptions<K, V> & AdditionalIteratorOptions
+
+export type Snapshot = AbstractSnapshot
