@@ -882,7 +882,7 @@ struct BaseIterator {
       if (reverse_ ? cmp > 0 : cmp < 0) {
         Next();
       }
-    } else {
+    } else { // TODO: can we skip this code path if not in reverse?
       SeekToFirst();
       if (dbIterator_->Valid()) {
         int cmp = dbIterator_->key().compare(target);
@@ -891,6 +891,15 @@ struct BaseIterator {
         }
       }
     }
+  }
+
+  /**
+   * Seek to an exact key.
+   */
+  bool SeekExact (leveldb::Slice& target) {
+    didSeek_ = true;
+    dbIterator_->Seek(target);
+    return dbIterator_->Valid() && dbIterator_->key() == target;
   }
 
   void CloseIterator () {
@@ -1377,6 +1386,74 @@ NAPI_METHOD(db_get) {
 }
 
 /**
+ * Worker class for db.has().
+ */
+struct HasWorker final : public PriorityWorker {
+  HasWorker(
+    napi_env env,
+    Database* database,
+    napi_deferred deferred,
+    leveldb::Slice key,
+    const bool fillCache,
+    ExplicitSnapshot* snapshot
+  ) : PriorityWorker(env, database, deferred, "classic_level.db.has"),
+      key_(key) {
+    iterator_ = new BaseIterator(
+      database,
+      // Range options (not relevant)
+      false, NULL, NULL, NULL, NULL, -1,
+      fillCache,
+      snapshot
+    );
+  }
+
+  ~HasWorker () {
+    DisposeSliceBuffer(key_);
+    delete iterator_;
+  }
+
+  void DoExecute () override {
+    // LevelDB has no Has() method so use an iterator
+    result_ = iterator_->SeekExact(key_);
+    SetStatus(iterator_->Status());
+    iterator_->CloseIterator();
+  }
+
+  void HandleOKCallback (napi_env env, napi_deferred deferred) override {
+    napi_value resultBoolean;
+    napi_get_boolean(env, result_, &resultBoolean);
+    napi_resolve_deferred(env, deferred, resultBoolean);
+  }
+
+private:
+  leveldb::Slice key_;
+  BaseIterator* iterator_;
+  bool result_;
+};
+
+/**
+ * Check if the database has an entry with the given key.
+ */
+NAPI_METHOD(db_has) {
+  NAPI_ARGV(4);
+  NAPI_DB_CONTEXT();
+  NAPI_PROMISE();
+
+  leveldb::Slice key = ToSlice(env, argv[1]);
+  const bool fillCache = BooleanValue(env, argv[2], true);
+
+  ExplicitSnapshot* snapshot = NULL;
+  napi_get_value_external(env, argv[3], (void**)&snapshot);
+
+  HasWorker* worker = new HasWorker(
+    env, database, deferred, key, fillCache, snapshot
+  );
+
+  worker->Queue(env);
+  return promise;
+}
+
+/**
  * Worker class for getting many values.
  */
 struct GetManyWorker final : public PriorityWorker {
@@ -1475,6 +1552,78 @@ NAPI_METHOD(db_get_many) {
     valueEncoding,
     fillCache,
     snapshot
+  );
+
+  worker->Queue(env);
+  return promise;
+}
+
+/**
+ * Worker class for db.hasMany().
+ */
+struct HasManyWorker final : public PriorityWorker {
+  HasManyWorker(
+    napi_env env,
+    Database* database,
+    std::vector<std::string> keys,
+    napi_deferred deferred,
+    uint32_t* bitset,
+    const bool fillCache,
+    ExplicitSnapshot* snapshot
+  ) : PriorityWorker(env, database, deferred, "classic_level.has.many"),
+      keys_(std::move(keys)),
+      bitset_(bitset) {
+    iterator_ = new BaseIterator(
+      database,
+      // Range options (not relevant)
+      false, NULL, NULL, NULL, NULL, -1,
+      fillCache,
+      snapshot
+    );
+  }
+
+  ~HasManyWorker () {
+    delete iterator_;
+  }
+
+  void DoExecute () override {
+    for (size_t i = 0; i != keys_.size(); i++) {
+      leveldb::Slice target = leveldb::Slice(keys_[i]);
+
+      if (iterator_->SeekExact(target)) {
+        bitset_[i >> 5] |= 1 << (i & 31); // Set bit
+      }
+    }
+
+    SetStatus(iterator_->Status());
+    iterator_->CloseIterator();
+  }
+
+private:
+  const std::vector<std::string> keys_;
+  uint32_t* bitset_;
+  BaseIterator* iterator_;
+};
+
+/**
+ * Check if the database has entries with the given keys.
+ */
+NAPI_METHOD(db_has_many) {
+  NAPI_ARGV(5);
+  NAPI_DB_CONTEXT();
+  NAPI_PROMISE();
+
+  const auto keys = KeyArray(env, argv[1]);
+  const bool fillCache = BooleanValue(env, argv[2], true);
+
+  ExplicitSnapshot* snapshot = NULL;
+  napi_get_value_external(env, argv[3], (void**)&snapshot);
+
+  uint32_t* bitset = NULL;
+  NAPI_STATUS_THROWS(napi_get_arraybuffer_info(env, argv[4], (void**)&bitset, NULL));
+
+  HasManyWorker* worker = new HasManyWorker(
+    env, database, keys, deferred, bitset, fillCache, snapshot
   );
 
   worker->Queue(env);
@@ -2280,6 +2429,8 @@ NAPI_INIT() {
   NAPI_EXPORT_FUNCTION(db_put);
   NAPI_EXPORT_FUNCTION(db_get);
   NAPI_EXPORT_FUNCTION(db_get_many);
+  NAPI_EXPORT_FUNCTION(db_has);
+  NAPI_EXPORT_FUNCTION(db_has_many);
   NAPI_EXPORT_FUNCTION(db_del);
   NAPI_EXPORT_FUNCTION(db_clear);
   NAPI_EXPORT_FUNCTION(db_approximate_size);
