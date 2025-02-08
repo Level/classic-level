@@ -22,6 +22,7 @@
 #include "db/version_edit.h"
 #include "port/port.h"
 #include "port/thread_annotations.h"
+#include "leveldb/value_sink.h"
 
 namespace leveldb {
 
@@ -70,7 +71,7 @@ class Version {
     FileMetaData* seek_file;
     int seek_file_level;
   };
-  Status Get(const ReadOptions&, const LookupKey& key, std::string* val,
+  Status Get(const ReadOptions&, const LookupKey& key, ValueSink* val,
              GetStats* stats);
 
   // Adds "stats" into the current state.  Returns true if a new
