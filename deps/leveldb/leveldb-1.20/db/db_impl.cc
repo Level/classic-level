@@ -1108,7 +1108,7 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
 
 Status DBImpl::Get(const ReadOptions& options,
                    const Slice& key,
-                   std::string* value) {
+                   ValueSink* value) {
   Status s;
   MutexLock l(&mutex_);
   SequenceNumber snapshot;

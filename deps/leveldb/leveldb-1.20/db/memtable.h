@@ -7,6 +7,7 @@
 
 #include <string>
 #include "leveldb/db.h"
+#include "leveldb/value_sink.h"
 #include "db/dbformat.h"
 #include "db/skiplist.h"
 #include "util/arena.h"
@@ -58,7 +59,7 @@ class MemTable {
   // If memtable contains a deletion for key, store a NotFound() error
   // in *status and return true.
   // Else, return false.
-  bool Get(const LookupKey& key, std::string* value, Status* s);
+  bool Get(const LookupKey& key, ValueSink* value, Status* s);
 
  private:
   ~MemTable();  // Private since only Unref() should be used to delete it

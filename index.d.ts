@@ -54,6 +54,9 @@ declare class ClassicLevel<KDefault = string, VDefault = string>
   get (key: KDefault): Promise<VDefault | undefined>
   get<K = KDefault, V = VDefault> (key: K, options: GetOptions<K, V>): Promise<V | undefined>
 
+  getSync (key: KDefault): VDefault | undefined
+  getSync<K = KDefault, V = VDefault> (key: K, options: GetOptions<K, V>): V | undefined
+
   getMany (keys: KDefault[]): Promise<(VDefault | undefined)[]>
   getMany<K = KDefault, V = VDefault> (keys: K[], options: GetManyOptions<K, V>): Promise<(V | undefined)[]>
 

@@ -1,0 +1,164 @@
+diff --git a/deps/leveldb/leveldb-1.20/db/db_impl.cc b/deps/leveldb/leveldb-1.20/db/db_impl.cc
+index f43ad76..7d01024 100755
+--- a/deps/leveldb/leveldb-1.20/db/db_impl.cc
++++ b/deps/leveldb/leveldb-1.20/db/db_impl.cc
+@@ -1108,7 +1108,7 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
+ 
+ Status DBImpl::Get(const ReadOptions& options,
+                    const Slice& key,
+-                   std::string* value) {
++                   ValueSink* value) {
+   Status s;
+   MutexLock l(&mutex_);
+   SequenceNumber snapshot;
+diff --git a/deps/leveldb/leveldb-1.20/db/db_impl.h b/deps/leveldb/leveldb-1.20/db/db_impl.h
+index 8ff323e..7df4701 100644
+--- a/deps/leveldb/leveldb-1.20/db/db_impl.h
++++ b/deps/leveldb/leveldb-1.20/db/db_impl.h
+@@ -12,6 +12,7 @@
+ #include "db/snapshot.h"
+ #include "leveldb/db.h"
+ #include "leveldb/env.h"
++#include "leveldb/value_sink.h"
+ #include "port/port.h"
+ #include "port/thread_annotations.h"
+ 
+@@ -34,7 +35,7 @@ class DBImpl : public DB {
+   virtual Status Write(const WriteOptions& options, WriteBatch* updates);
+   virtual Status Get(const ReadOptions& options,
+                      const Slice& key,
+-                     std::string* value);
++                     ValueSink* value);
+   virtual Iterator* NewIterator(const ReadOptions&);
+   virtual const Snapshot* GetSnapshot();
+   virtual void ReleaseSnapshot(const Snapshot* snapshot);
+diff --git a/deps/leveldb/leveldb-1.20/db/memtable.cc b/deps/leveldb/leveldb-1.20/db/memtable.cc
+index bfec0a7..79c63cc 100644
+--- a/deps/leveldb/leveldb-1.20/db/memtable.cc
++++ b/deps/leveldb/leveldb-1.20/db/memtable.cc
+@@ -105,7 +105,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
+   table_.Insert(buf);
+ }
+ 
+-bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
++bool MemTable::Get(const LookupKey& key, ValueSink* value, Status* s) {
+   Slice memkey = key.memtable_key();
+   Table::Iterator iter(&table_);
+   iter.Seek(memkey.data());
+diff --git a/deps/leveldb/leveldb-1.20/db/memtable.h b/deps/leveldb/leveldb-1.20/db/memtable.h
+index 9f41567..c7f89e6 100644
+--- a/deps/leveldb/leveldb-1.20/db/memtable.h
++++ b/deps/leveldb/leveldb-1.20/db/memtable.h
+@@ -7,6 +7,7 @@
+ 
+ #include <string>
+ #include "leveldb/db.h"
++#include "leveldb/value_sink.h"
+ #include "db/dbformat.h"
+ #include "db/skiplist.h"
+ #include "util/arena.h"
+@@ -58,7 +59,7 @@ class MemTable {
+   // If memtable contains a deletion for key, store a NotFound() error
+   // in *status and return true.
+   // Else, return false.
+-  bool Get(const LookupKey& key, std::string* value, Status* s);
++  bool Get(const LookupKey& key, ValueSink* value, Status* s);
+ 
+  private:
+   ~MemTable();  // Private since only Unref() should be used to delete it
+diff --git a/deps/leveldb/leveldb-1.20/db/version_set.cc b/deps/leveldb/leveldb-1.20/db/version_set.cc
+index b1256f9..056e738 100755
+--- a/deps/leveldb/leveldb-1.20/db/version_set.cc
++++ b/deps/leveldb/leveldb-1.20/db/version_set.cc
+@@ -262,7 +262,7 @@ struct Saver {
+   SaverState state;
+   const Comparator* ucmp;
+   Slice user_key;
+-  std::string* value;
++  ValueSink* value;
+ };
+ }
+ static void SaveValue(void* arg, const Slice& ikey, const Slice& v) {
+@@ -331,7 +331,7 @@ void Version::ForEachOverlapping(Slice user_key, Slice internal_key,
+ 
+ Status Version::Get(const ReadOptions& options,
+                     const LookupKey& k,
+-                    std::string* value,
++                    ValueSink* value,
+                     GetStats* stats) {
+   Slice ikey = k.internal_key();
+   Slice user_key = k.user_key();
+diff --git a/deps/leveldb/leveldb-1.20/db/version_set.h b/deps/leveldb/leveldb-1.20/db/version_set.h
+index c4e7ac3..718fa71 100755
+--- a/deps/leveldb/leveldb-1.20/db/version_set.h
++++ b/deps/leveldb/leveldb-1.20/db/version_set.h
+@@ -22,6 +22,7 @@
+ #include "db/version_edit.h"
+ #include "port/port.h"
+ #include "port/thread_annotations.h"
++#include "leveldb/value_sink.h"
+ 
+ namespace leveldb {
+ 
+@@ -70,7 +71,7 @@ class Version {
+     FileMetaData* seek_file;
+     int seek_file_level;
+   };
+-  Status Get(const ReadOptions&, const LookupKey& key, std::string* val,
++  Status Get(const ReadOptions&, const LookupKey& key, ValueSink* val,
+              GetStats* stats);
+ 
+   // Adds "stats" into the current state.  Returns true if a new
+diff --git a/deps/leveldb/leveldb-1.20/include/leveldb/db.h b/deps/leveldb/leveldb-1.20/include/leveldb/db.h
+index bfab10a..f0b5060 100755
+--- a/deps/leveldb/leveldb-1.20/include/leveldb/db.h
++++ b/deps/leveldb/leveldb-1.20/include/leveldb/db.h
+@@ -9,6 +9,7 @@
+ #include <stdio.h>
+ #include "leveldb/iterator.h"
+ #include "leveldb/options.h"
++#include "leveldb/value_sink.h"
+ 
+ namespace leveldb {
+ 
+@@ -81,7 +82,7 @@ class DB {
+   //
+   // May return some other Status on an error.
+   virtual Status Get(const ReadOptions& options,
+-                     const Slice& key, std::string* value) = 0;
++                     const Slice& key, ValueSink* value) = 0;
+ 
+   // Return a heap-allocated iterator over the contents of the database.
+   // The result of NewIterator() is initially invalid (caller must
+diff --git a/deps/leveldb/leveldb-1.20/include/leveldb/value_sink.h b/deps/leveldb/leveldb-1.20/include/leveldb/value_sink.h
+new file mode 100644
+index 0000000..87f80d9
+--- /dev/null
++++ b/deps/leveldb/leveldb-1.20/include/leveldb/value_sink.h
+@@ -0,0 +1,26 @@
++#ifndef STORAGE_LEVELDB_INCLUDE_VALUE_SINK_H_
++#define STORAGE_LEVELDB_INCLUDE_VALUE_SINK_H_
++
++namespace leveldb {
++  struct ValueSink {
++    public:
++      ValueSink () {}
++
++      // Same as std::string:assign
++      virtual void assign(const char* s, size_t n) = 0;
++  };
++
++  struct StringValueSink : public ValueSink {
++    public:
++      StringValueSink (std::string* nut)
++        : ValueSink(), nut_(nut) {}
++
++      void assign(const char* s, size_t n) override {
++        nut_->assign(s, n);
++      }
++    private:
++      std::string* nut_;
++  };
++}
++
++#endif // STORAGE_LEVELDB_INCLUDE_VALUE_SINK_H_
