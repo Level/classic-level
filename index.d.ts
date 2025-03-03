@@ -48,8 +48,8 @@ declare class ClassicLevel<KDefault = string, VDefault = string>
   open (): Promise<void>
   open (options: OpenOptions): Promise<void>
 
-  get (key: KDefault): Promise<VDefault>
-  get<K = KDefault, V = VDefault> (key: K, options: GetOptions<K, V>): Promise<V>
+  get (key: KDefault): Promise<VDefault | undefined>
+  get<K = KDefault, V = VDefault> (key: K, options: GetOptions<K, V>): Promise<V|undefined>
 
   getMany (keys: KDefault[]): Promise<VDefault[]>
   getMany<K = KDefault, V = VDefault> (keys: K[], options: GetManyOptions<K, V>): Promise<V[]>
