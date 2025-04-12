@@ -262,7 +262,7 @@ struct Saver {
   SaverState state;
   const Comparator* ucmp;
   Slice user_key;
-  std::string* value;
+  ValueSink* value;
 };
 }
 static void SaveValue(void* arg, const Slice& ikey, const Slice& v) {
@@ -331,7 +331,7 @@ void Version::ForEachOverlapping(Slice user_key, Slice internal_key,
 
 Status Version::Get(const ReadOptions& options,
                     const LookupKey& k,
-                    std::string* value,
+                    ValueSink* value,
                     GetStats* stats) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();

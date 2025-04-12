@@ -11,6 +11,8 @@ const kContext = Symbol('context')
 const kLocation = Symbol('location')
 
 class ClassicLevel extends AbstractLevel {
+  #sharedBuffer = null
+
   constructor (location, options) {
     if (typeof location !== 'string' || location === '') {
       throw new TypeError("The first argument 'location' must be a non-empty string")
@@ -26,6 +28,7 @@ class ClassicLevel extends AbstractLevel {
       createIfMissing: true,
       errorIfExists: true,
       explicitSnapshots: true,
+      getSync: true,
       additionalMethods: {
         approximateSize: true,
         compactRange: true
@@ -60,13 +63,80 @@ class ClassicLevel extends AbstractLevel {
   }
 
   async _get (key, options) {
+    let flags = 0
+
+    if (options.fillCache !== false) flags |= FLAG_FILL_CACHE
+    if (options.valueEncoding !== 'utf8') flags |= FLAG_VALUE_AS_BUFFER
+
+    if (options.keyEncoding !== 'utf8') {
+      flags |= FLAG_KEY_AS_BUFFER
+
+      // If address of ArrayBuffer can move then copy it.
+      // TODO: the spec says "Resizable ArrayBuffers are designed to be implementable with in-place
+      // growth" (backed by virtual memory) so if V8 / Node.js implemented it that way, copying is
+      // not necessary. Check if the address changes after a (significant) resize.
+      if (key.buffer.resizable) {
+        key = new Uint8Array(key)
+      }
+    }
+
     return binding.db_get(
       this[kContext],
+      flags,
       key,
-      encodingEnum(options.valueEncoding),
-      options.fillCache,
       options.snapshot?.[kContext]
     )
+  }
+
+  _getSync (key, options) {
+    let flags = 0
+
+    if (options.fillCache !== false) flags |= FLAG_FILL_CACHE
+    if (options.valueEncoding !== 'utf8') flags |= FLAG_VALUE_AS_BUFFER
+
+    if (options.keyEncoding !== 'utf8') {
+      return binding.db_get_sync(
+        this[kContext],
+        flags,
+        key,
+        options.snapshot?.[kContext]
+      )
+    } else {
+      let keySize
+
+      // Write key to a reused buffer. This is slightly faster than
+      // napi_get_value_string_utf8 but is mainly here as a starting
+      // point for encodings that write into a buffer (WIP).
+      if (this.#sharedBuffer === null) {
+        keySize = this.#createSharedBuffer(key)
+      } else {
+        keySize = this.#sharedBuffer.write(key)
+
+        // Resize if needed
+        if (keySize === this.#sharedBuffer.byteLength) {
+          keySize = this.#createSharedBuffer(key)
+        }
+      }
+
+      return binding.db_get_sync(
+        this[kContext],
+        flags | FLAG_SHARED_KEY,
+        keySize,
+        options.snapshot?.[kContext]
+      )
+    }
+  }
+
+  #createSharedBuffer (str) {
+    // Add at least 1 byte to detect when size is exceeded (without needing
+    // to precompute size on every write) and more to avoid frequent resizing.
+    this.#sharedBuffer = Buffer.allocUnsafe(Buffer.byteLength(str) + 64)
+
+    // Save buffer on the database so that we can subsequently read from a
+    // raw pointer instead of going through Node-API again.
+    binding.db_set_shared_buffer(this[kContext], this.#sharedBuffer)
+
+    return this.#sharedBuffer.write(str)
   }
 
   async _getMany (keys, options) {
@@ -233,11 +303,9 @@ class Snapshot extends AbstractSnapshot {
 
 exports.ClassicLevel = ClassicLevel
 
-// It's faster to read options in JS than to pass options objects to C++.
-const encodingEnum = function (encoding) {
-  if (encoding === 'buffer') return 0
-  if (encoding === 'utf8') return 1
-
-  /* istanbul ignore else: should not happen */
-  if (encoding === 'view') return 2
-}
+// Singular values are cheaper to transfer from JS to C++, so we
+// combine options into flags.
+const FLAG_FILL_CACHE = 1
+const FLAG_KEY_AS_BUFFER = 2
+const FLAG_VALUE_AS_BUFFER = 4
+const FLAG_SHARED_KEY = 8
