@@ -22,6 +22,7 @@ class ClassicLevel extends AbstractLevel {
         utf8: true,
         view: true
       },
+      has: true,
       createIfMissing: true,
       errorIfExists: true,
       explicitSnapshots: true,
@@ -75,6 +76,39 @@ class ClassicLevel extends AbstractLevel {
       options,
       options.snapshot?.[kContext]
     )
+  }
+
+  async _has (key, options) {
+    return binding.db_has(
+      this[kContext],
+      key,
+      options.fillCache,
+      options.snapshot?.[kContext]
+    )
+  }
+
+  async _hasMany (keys, options) {
+    // Use a space-efficient bitset (with 32-bit words) to contain found keys
+    const wordCount = (keys.length + 32) >>> 5
+    const buffer = new ArrayBuffer(wordCount * 4)
+    const bitset = new Uint32Array(buffer)
+
+    await binding.db_has_many(
+      this[kContext],
+      keys,
+      options.fillCache,
+      options.snapshot?.[kContext],
+      buffer
+    )
+
+    const values = new Array(keys.length)
+
+    for (let i = 0; i < values.length; i++) {
+      // Check if bit is set
+      values[i] = (bitset[i >>> 5] & (1 << (i & 31))) !== 0
+    }
+
+    return values
   }
 
   async _del (key, options) {
