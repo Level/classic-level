@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.0.0] - 2025-04-20
+
+_If you are upgrading: please see [`UPGRADING.md`](UPGRADING.md)._
+
+### Changed
+
+- **Breaking:** upgrade to `abstract-level` 3 ([#112](https://github.com/Level/classic-level/issues/112)) ([`812fe88`](https://github.com/Level/classic-level/commit/812fe88)) (Vincent Weevers)
+
+### Added
+
+- Add `db.getSync()` method ([#120](https://github.com/Level/classic-level/issues/120)) ([`7a2bd2c`](https://github.com/Level/classic-level/commit/7a2bd2c)) (Vincent Weevers)
+- Implement `has()` and `hasMany()` ([#111](https://github.com/Level/classic-level/issues/111)) ([`6aeb739`](https://github.com/Level/classic-level/commit/6aeb739)) (Vincent Weevers)
+- Implement explicit snapshots ([#110](https://github.com/Level/classic-level/issues/110)) ([`15eb289`](https://github.com/Level/classic-level/commit/15eb289)) (Vincent Weevers)
+
+### Fixed
+
+- Fix TypeScript return type of `get` and `getMany` ([#117](https://github.com/Level/classic-level/issues/117)) ([`e310ffd`](https://github.com/Level/classic-level/commit/e310ffd)) (David Daester)
+
 ## [2.0.0] - 2024-10-21
 
 _If you are upgrading: please see [`UPGRADING.md`](UPGRADING.md)._
@@ -79,6 +97,8 @@ _Not released to npm because of a race issue, which was fixed in 1.4.1._
 ## [1.0.0] - 2022-03-04
 
 _:seedling: Initial release. If you are upgrading from `leveldown` please see [`UPGRADING.md`](UPGRADING.md)._
+
+[3.0.0]: https://github.com/Level/classic-level/releases/tag/v3.0.0
 
 [2.0.0]: https://github.com/Level/classic-level/releases/tag/v2.0.0
 
