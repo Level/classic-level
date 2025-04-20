@@ -7,7 +7,6 @@ const fsp = require('fs/promises')
 const path = require('path')
 const mkfiletree = require('mkfiletree')
 const readfiletree = require('readfiletree')
-const rimraf = require('rimraf')
 const { ClassicLevel } = require('..')
 const makeTest = require('./make')
 
@@ -24,9 +23,7 @@ test('test destroy() without location throws', async function (t) {
   }
 })
 
-test('test destroy non-existent directory', function (t) {
-  t.plan(3)
-
+test('test destroy non-existent directory', async function (t) {
   const location = tempy.directory()
   const parent = path.dirname(location)
 
@@ -34,16 +31,13 @@ test('test destroy non-existent directory', function (t) {
   t.ok(fs.existsSync(parent), 'parent exists before')
 
   // Cleanup to avoid conflicts with other tests
-  // TODO: use promise
-  rimraf(location, { glob: false }, function (err) {
-    t.ifError(err, 'no error from rimraf()')
+  await fsp.rm(location, { recursive: true, force: true })
 
-    ClassicLevel.destroy(location).then(function () {
-      // Assert that destroy() didn't inadvertently create the directory.
-      // Or if it did, that it was at least cleaned up afterwards.
-      t.notOk(fs.existsSync(location), 'directory does not exist after')
-    }, t.fail.bind(t))
-  })
+  await ClassicLevel.destroy(location)
+
+  // Assert that destroy() didn't inadvertently create the directory.
+  // Or if it did, that it was at least cleaned up afterwards.
+  t.notOk(fs.existsSync(location), 'directory does not exist after')
 })
 
 test('test destroy non-existent parent directory', function (t) {
