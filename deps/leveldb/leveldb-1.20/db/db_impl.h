@@ -12,6 +12,7 @@
 #include "db/snapshot.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
+#include "leveldb/value_sink.h"
 #include "port/port.h"
 #include "port/thread_annotations.h"
 
@@ -34,7 +35,7 @@ class DBImpl : public DB {
   virtual Status Write(const WriteOptions& options, WriteBatch* updates);
   virtual Status Get(const ReadOptions& options,
                      const Slice& key,
-                     std::string* value);
+                     ValueSink* value);
   virtual Iterator* NewIterator(const ReadOptions&);
   virtual const Snapshot* GetSnapshot();
   virtual void ReleaseSnapshot(const Snapshot* snapshot);

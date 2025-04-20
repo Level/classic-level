@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include "leveldb/iterator.h"
 #include "leveldb/options.h"
+#include "leveldb/value_sink.h"
 
 namespace leveldb {
 
@@ -81,7 +82,7 @@ class DB {
   //
   // May return some other Status on an error.
   virtual Status Get(const ReadOptions& options,
-                     const Slice& key, std::string* value) = 0;
+                     const Slice& key, ValueSink* value) = 0;
 
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must
