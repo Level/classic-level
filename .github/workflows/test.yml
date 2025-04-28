@@ -33,7 +33,8 @@ jobs:
       - name: Codecov
         uses: codecov/codecov-action@v5
         with:
-          file: coverage/lcov.info
+          files: coverage/lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
       # https://github.com/electron/electron/issues/42510#issuecomment-2171583086
       - name: Disable AppArmor restriction
         if: ${{ matrix.os == 'ubuntu-latest' }}
