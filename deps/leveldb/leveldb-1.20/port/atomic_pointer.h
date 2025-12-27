@@ -41,6 +41,8 @@
 #define ARCH_CPU_PPC_FAMILY 1
 #elif defined(__mips__)
 #define ARCH_CPU_MIPS_FAMILY 1
+#elif defined(__riscv)
+#define ARCH_CPU_RISCV64_FAMILY 1
 #endif
 
 namespace leveldb {
@@ -100,6 +102,13 @@ inline void MemoryBarrier() {
 #elif defined(ARCH_CPU_ARM64_FAMILY)
 inline void MemoryBarrier() {
   asm volatile("dmb sy" : : : "memory");
+}
+#define LEVELDB_HAVE_MEMORY_BARRIER
+
+// RISCV64
+#elif defined(ARCH_CPU_RISCV64_FAMILY)
+inline void MemoryBarrier() {
+  asm volatile("fence iorw, iorw" : : : "memory");
 }
 #define LEVELDB_HAVE_MEMORY_BARRIER
 
