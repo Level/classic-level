@@ -8,6 +8,9 @@ updates:
       - dependency-name: standard
       - dependency-name: dependency-check
       - dependency-name: node-gyp
+      - dependency-name: @types/node
+      - dependency-name: @voxpelli/tsconfig
+      - dependency-name: typescript
       # ESM-only
       - dependency-name: tempy
 
