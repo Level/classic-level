@@ -33,7 +33,7 @@
   "devDependencies": {
     "@types/node": "^24.6.1",
     "@voxpelli/tsconfig": "^15.1.2",
-    "cross-env": "^7.0.3",
+    "cross-env": "^10.1.0",
     "du": "^1.0.0",
     "electron": "^35.2.0",
     "glob": "^10.4.5",
