@@ -38,7 +38,7 @@
     "electron": "^35.2.0",
     "glob": "^10.4.5",
     "hallmark": "^5.0.1",
-    "mkfiletree": "^2.0.0",
+    "mkfiletree": "^3.1.0",
     "node-gyp": "^11.2.0",
     "nyc": "^17.1.0",
     "prebuildify": "^6.0.1",
